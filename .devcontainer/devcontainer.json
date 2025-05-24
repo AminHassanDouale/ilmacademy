@@ -1,0 +1,7 @@
+{
+	"name": "orange",
+	"dockerComposeFile": "../.docker/docker-compose.yml",
+	"service": "orange-app",
+	"workspaceFolder": "/var/www/app",
+	"remoteUser": "appuser",
+}
