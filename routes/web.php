@@ -37,10 +37,7 @@ Route::get('/logout', function () {
 })->name('logout');
 
 // Public Routes
-Volt::route('/about', 'home.about')->name('about');
-Volt::route('/courses', 'home.courses')->name('courses');
-Volt::route('/courses/{curriculum}', 'home.curriculum-details')->name('curriculum.show');
-Volt::route('/faqs', 'home.faqs')->name('faqs');
+
 
 // Auth Required Routes
 Route::middleware('auth')->group(function () {
