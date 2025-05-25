@@ -19,9 +19,9 @@ class DatabaseSeeder extends Seeder
 
             // Profiles
            // ParentProfileSeeder::class,
-            TeacherProfileSeeder::class,
-            ChildProfileSeeder::class,
-            ClientProfileSeeder::class,
+           // TeacherProfileSeeder::class,
+           // ChildProfileSeeder::class,
+           // ClientProfileSeeder::class,
 
             // Academic structure
             CurriculumSeeder::class,
