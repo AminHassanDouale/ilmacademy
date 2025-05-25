@@ -18,7 +18,7 @@ class DatabaseSeeder extends Seeder
             AcademicYearSeeder::class,
 
             // Profiles
-            ParentProfileSeeder::class,
+           // ParentProfileSeeder::class,
             TeacherProfileSeeder::class,
             ChildProfileSeeder::class,
             ClientProfileSeeder::class,
