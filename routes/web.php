@@ -123,7 +123,7 @@ Route::middleware('auth')->group(function () {
         Volt::route('/teachers/{teacherProfile}/edit', 'admin.teachers.edit')->name('admin.teachers.edit');
         Volt::route('/teachers/{teacherProfile}/session', 'admin.teachers.sessions')->name('admin.teachers.sessions');
         Volt::route('/teachers/{teacherProfile}/exams', 'admin.teachers.exams')->name('admin.teachers.exams');
-        Volt::route('/teachers/{teacherProfile}/exams/results', 'admin.teachers.exams.results')->name('admin.teachers.exams');
+        //Volt::route('/teachers/{teacherProfile}/exams/results', 'admin.teachers.exams.results')->name('admin.teachers.exams');
         Volt::route('/teachers/{teacherProfile}/timetable', 'admin.teachers.timetable')->name('admin.teachers.timetable');
 
         Volt::route('/parents', 'admin.parents.index')->name('admin.parents.index');
