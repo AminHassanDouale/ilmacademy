@@ -1,3 +1,7 @@
+// Import CSS
+import '../css/app.css';
+
+// Your existing Livewire code
 document.addEventListener('livewire:init', () => {
     Livewire.hook('request', ({fail}) => {
         fail(({status, content, preventDefault}) => {

@@ -1,10 +1,3 @@
-<?php
-
-use function Livewire\Volt\{state};
-
-?>
-
-<div>
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
@@ -24,8 +17,8 @@ use function Livewire\Volt\{state};
             theme: {
                 extend: {
                     colors: {
-                        primary: '#3c8e5f', // Islamic green shade
-                        secondary: '#f9b53b', // Gold/amber accent
+                        primary: '#3c8e5f',
+                        secondary: '#f9b53b',
                         base: {
                             50: '#f8fafc',
                             100: '#f1f5f9',
@@ -104,7 +97,7 @@ use function Livewire\Volt\{state};
     <header class="fixed z-10 w-full bg-base-50/50 dark:bg-base-950/50 backdrop-blur-xl">
         <nav class="container relative flex flex-wrap items-center justify-start gap-4 px-4 mx-auto border-b h-14 border-base lg:gap-8">
             <a href="/">
-                <img src="{{ asset('images/logo-mark.png') }}" alt="Logo" class="w-auto h-10 hover:animate-spin dark:invert">
+                <img src="/images/logo-mark.png" alt="Logo" class="w-auto h-10 hover:animate-spin dark:invert">
             </a>
 
             <div id="mobile-menu" class="hidden md:block md:w-auto">
@@ -200,19 +193,19 @@ use function Livewire\Volt\{state};
                 </div>
 
                 <div>
-                    <img src="{{ asset('images/tablet-mockup.png') }}" alt="Islamic Learning Platform Screenshot" class="w-full h-auto">
+<img src="/images/tablet-mockup.png" alt="Islamic Learning Platform Screenshot" class="w-full h-auto">
                 </div>
 
                 <div class="text-sm">Trusted by Islamic Schools and Organizations Worldwide</div>
 
                 <!-- Brand Logos -->
                 <div class="flex flex-wrap items-center justify-center w-full gap-px">
-                    <img src="{{ asset('images/logoipsum-288.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
-                    <img src="{{ asset('images/logoipsum-317.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
-                    <img src="{{ asset('images/logoipsum-321.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
-                    <img src="{{ asset('images/logoipsum-323.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
-                    <img src="{{ asset('images/logoipsum-330.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
-                    <img src="{{ asset('images/logoipsum-331.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
+                    <img src="/images/logoipsum-288.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
+                    <img src="/images/logoipsum-317.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
+                    <img src="/images/logoipsum-321.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
+                    <img src="/images/logoipsum-323.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
+                    <img src="/images/logoipsum-330.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
+                    <img src="/images/logoipsum-331.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
                 </div>
             </div>
         </div>
@@ -341,7 +334,7 @@ use function Livewire\Volt\{state};
                 <!-- Image Section -->
                 <div class="relative flex items-center group isolate">
                     <div class="absolute w-3/4 duration-200 ease-in-out -translate-x-1/2 -translate-y-1/2 rounded-full left-1/2 top-1/2 group-hover:w-2/3 aspect-square bg-base-200 dark:bg-base-800"></div>
-                    <img src="{{ asset('images/phone-mockup.png') }}" alt="Quran Learning Interface" class="object-contain w-full duration-300 ease-in-out aspect-square rotate-6 hover:rotate-0">
+                     <img src="images/phone-mockup.png" alt="Quran Learning Interface" class="object-contain w-full duration-300 ease-in-out aspect-square rotate-6 hover:rotate-0">
                 </div>
             </div>
         </div>
@@ -354,7 +347,7 @@ use function Livewire\Volt\{state};
                 <!-- Image Section (Ordered First on MD Screens) -->
                 <div class="relative flex items-center group isolate md:order-first">
                     <div class="absolute w-3/4 duration-200 ease-in-out -translate-x-1/2 -translate-y-1/2 rounded-full left-1/2 top-1/2 group-hover:w-2/3 aspect-square bg-base-200 dark:bg-base-800"></div>
-                    <img src="{{ asset('images/phone-mockup.png') }}" alt="Hadith Studies Interface" class="object-contain w-full duration-300 ease-in-out aspect-square -rotate-6 hover:rotate-0">
+                     <img src="images/phone-mockup.png" alt="Hadith Studies Interface" class="object-contain w-full duration-300 ease-in-out aspect-square -rotate-6 hover:rotate-0">
                 </div>
 
                 <div class="py-10">
@@ -581,7 +574,7 @@ use function Livewire\Volt\{state};
                 <div class="flex flex-col h-full p-6 transition-all duration-300 ease-in-out bg-white dark:bg-base-950 rounded-xl hover:shadow-lg">
                     <p class="flex-grow mb-4 text-base-600 dark:text-base-400">"The Quran memorization program has transformed my relationship with the Quran. The structured approach and teacher feedback made all the difference in my journey."</p>
                     <div class="flex items-center gap-3">
-                        <img src="https://i.pravatar.cc/150?img=1" alt="Ahmed M." class="object-cover rounded-full size-10">
+                        <img src="https://i.pravatar.cc/150?img=1"  alt="Ahmed M." class="object-cover rounded-full size-10">
                         <div>
                             <h4 class="font-medium">Ahmed M.</h4>
                             <p class="text-sm text-base-600 dark:text-base-400">Hifz Student</p>
@@ -736,7 +729,7 @@ use function Livewire\Volt\{state};
     <footer class="pt-6 bg-base-100 dark:bg-base-900" id="footer">
         <div class="container px-4 mx-auto">
             <div class="flex flex-col items-center justify-between gap-4 py-6 md:flex-row">
-                <img src="{{ asset('images/logo.png') }}" alt="Islamic Learning Platform Logo" class="w-auto h-10 opacity-70 hover:opacity-100 dark:invert">
+                 <img src="images/logo.png" alt="Islamic Learning Platform Logo" class="w-auto h-10 opacity-70 hover:opacity-100 dark:invert">
 
                 <div class="flex flex-row gap-4 text-sm">
                   <a href="{{ route('privacy') }}">Privacy Policy</a>

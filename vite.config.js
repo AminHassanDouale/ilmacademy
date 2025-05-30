@@ -1,13 +1,13 @@
-import {defineConfig} from 'vite';
+import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
 
 export default defineConfig({
     server: {
         host: '0.0.0.0',
-        port: 5117,
+        port: 5217,
         hmr: {
             host: 'localhost',
-            clientPort: 5117
+            clientPort: 5217
         }
     },
     build: {

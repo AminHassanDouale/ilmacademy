@@ -12,13 +12,20 @@
     <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
 
+    <!-- Debug info -->
+    <script>
+        console.log('Environment: {{ app()->environment() }}');
+        console.log('Hot file exists: {{ file_exists(public_path('hot')) ? 'true' : 'false' }}');
+    </script>
+
+    <!-- Vite directive - automatically handles dev/production assets -->
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="h-full">
 <x-main full-width class="h-full">
     <x-slot:content>
         {{ $slot }}
-      </x-slot:content>
+    </x-slot:content>
 </x-main>
 
 {{-- Toast --}}
