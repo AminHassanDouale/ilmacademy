@@ -1,0 +1,6 @@
+# We are include products images here to make demo easy to setup.
+# You should remove `!products/` entry in real world, because you must not commit files from storage folder.
+# Products images should be upload at online servers.
+*
+!products/
+!.gitignore
