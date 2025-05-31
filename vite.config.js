@@ -9,7 +9,6 @@ export default defineConfig({
         }),
     ],
     build: {
-        // Remove custom manifest name - let Vite use default
         outDir: 'public/build',
         emptyOutDir: true,
         rollupOptions: {
@@ -18,15 +17,13 @@ export default defineConfig({
             },
         },
     },
-    // Only include server config for development
-    ...(process.env.NODE_ENV === 'development' && {
-        server: {
-            host: '0.0.0.0',
-            port: 5217,
-            hmr: {
-                host: 'localhost',
-                clientPort: 5217
-            }
+    // Development server configuration
+    server: {
+        host: '0.0.0.0',
+        port: 5217,
+        hmr: {
+            host: 'localhost',
+            clientPort: 5217
         }
-    })
+    }
 });
