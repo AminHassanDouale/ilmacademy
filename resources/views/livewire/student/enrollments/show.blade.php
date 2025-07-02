@@ -1,10 +1,11 @@
 <?php
 
+use App\Models\User;
 use App\Models\ProgramEnrollment;
 use App\Models\SubjectEnrollment;
-use App\Models\Invoice;
 use App\Models\ActivityLog;
-use App\Models\PaymentPlan;
+use App\Models\Invoice;
+use App\Models\Payment;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -13,531 +14,873 @@ use Mary\Traits\Toast;
 new #[Title('Enrollment Details')] class extends Component {
     use Toast;
 
+    // Current user and enrollment
+    public User $user;
     public ProgramEnrollment $programEnrollment;
-    public $subjectEnrollments;
-    public $invoices;
-    public $paymentPlan;
-    public $academicYear;
-    public $curriculum;
-    public $childProfile;
+
+    // Related data
+    public array $subjectEnrollments = [];
+    public array $invoices = [];
+    public array $payments = [];
+    public array $stats = [];
 
     // Tab management
-    public string $activeTab = 'subjects';
+    public string $activeTab = 'overview';
 
-    // Load data
     public function mount(ProgramEnrollment $programEnrollment): void
     {
-        // Check if the enrollment belongs to one of the user's children
-        $user = Auth::user();
-        $childProfileIds = $user->childProfiles()->pluck('id')->toArray();
+        $this->user = Auth::user();
+        $this->programEnrollment = $programEnrollment->load([
+            'childProfile',
+            'curriculum',
+            'academicYear',
+            'paymentPlan',
+            'subjectEnrollments.subject'
+        ]);
 
-        if (!in_array($programEnrollment->child_profile_id, $childProfileIds)) {
-            $this->error("You don't have permission to view this enrollment.");
-            return redirect()->route('student.enrollments.index');
-        }
-
-        $this->programEnrollment = $programEnrollment;
-        $this->loadRelationships();
+        // Check if user has access to this enrollment
+        $this->checkAccess();
 
         // Log activity
         ActivityLog::log(
-            Auth::id(),
+            $this->user->id,
             'view',
-            'Student viewed enrollment details',
+            "Viewed enrollment details for: {$this->programEnrollment->curriculum->name ?? 'Unknown Program'}",
             ProgramEnrollment::class,
-            $programEnrollment->id,
-            ['ip' => request()->ip()]
+            $this->programEnrollment->id,
+            [
+                'enrollment_id' => $this->programEnrollment->id,
+                'program_name' => $this->programEnrollment->curriculum->name ?? 'Unknown',
+                'student_name' => $this->programEnrollment->childProfile->full_name ?? 'Unknown',
+                'ip' => request()->ip()
+            ]
         );
+
+        $this->loadRelatedData();
+        $this->loadStats();
     }
 
-    // Load relationships
-    public function loadRelationships(): void
+    protected function checkAccess(): void
     {
-        $this->programEnrollment->load([
-            'curriculum',
-            'academicYear',
-            'childProfile',
-            'paymentPlan',
-            'subjectEnrollments.subject',
-            'subjectEnrollments.teacher',
-            'invoices'
-        ]);
+        $hasAccess = false;
 
-        $this->subjectEnrollments = $this->programEnrollment->subjectEnrollments;
-        $this->invoices = $this->programEnrollment->invoices;
-        $this->paymentPlan = $this->programEnrollment->paymentPlan;
-        $this->academicYear = $this->programEnrollment->academicYear;
-        $this->curriculum = $this->programEnrollment->curriculum;
-        $this->childProfile = $this->programEnrollment->childProfile;
+        if ($this->user->hasRole('student')) {
+            // Student can only view their own enrollments
+            $hasAccess = $this->programEnrollment->childProfile &&
+                        $this->programEnrollment->childProfile->user_id === $this->user->id;
+        } elseif ($this->user->hasRole('parent')) {
+            // Parent can view their children's enrollments
+            $hasAccess = $this->programEnrollment->childProfile &&
+                        $this->programEnrollment->childProfile->parent_id === $this->user->id;
+        }
+
+        if (!$hasAccess) {
+            abort(403, 'You do not have permission to view this enrollment.');
+        }
     }
 
-    // Change active tab
+    protected function loadRelatedData(): void
+    {
+        try {
+            // Load subject enrollments
+            $this->subjectEnrollments = $this->programEnrollment->subjectEnrollments()
+                ->with(['subject'])
+                ->get()
+                ->toArray();
+
+            // Load invoices for this enrollment
+            $this->invoices = $this->getEnrollmentInvoices();
+
+            // Load payments for this enrollment
+            $this->payments = $this->getEnrollmentPayments();
+
+        } catch (\Exception $e) {
+            $this->subjectEnrollments = [];
+            $this->invoices = [];
+            $this->payments = [];
+        }
+    }
+
+    protected function getEnrollmentInvoices(): array
+    {
+        try {
+            if (!class_exists(Invoice::class)) {
+                return [];
+            }
+
+            // Try direct relationship first
+            if (method_exists($this->programEnrollment, 'invoices')) {
+                return $this->programEnrollment->invoices()
+                    ->orderBy('invoice_date', 'desc')
+                    ->get()
+                    ->toArray();
+            }
+
+            // Fallback: Get invoices by child profile and academic year
+            return Invoice::where('child_profile_id', $this->programEnrollment->child_profile_id)
+                ->where('academic_year_id', $this->programEnrollment->academic_year_id)
+                ->orderBy('invoice_date', 'desc')
+                ->get()
+                ->toArray();
+
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    protected function getEnrollmentPayments(): array
+    {
+        try {
+            if (!class_exists(Payment::class)) {
+                return [];
+            }
+
+            // Get payments through invoices or directly by child profile
+            return Payment::where('child_profile_id', $this->programEnrollment->child_profile_id)
+                ->whereHas('invoice', function($query) {
+                    $query->where('academic_year_id', $this->programEnrollment->academic_year_id);
+                })
+                ->orderBy('payment_date', 'desc')
+                ->get()
+                ->toArray();
+
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    protected function loadStats(): void
+    {
+        try {
+            $totalSubjects = count($this->subjectEnrollments);
+            $totalInvoices = count($this->invoices);
+            $totalPayments = count($this->payments);
+
+            // Calculate financial totals
+            $totalInvoiceAmount = array_sum(array_column($this->invoices, 'amount'));
+            $totalPaidAmount = array_sum(array_column($this->payments, 'amount'));
+            $outstandingAmount = $totalInvoiceAmount - $totalPaidAmount;
+
+            // Calculate enrollment progress (example calculation)
+            $progressPercentage = $totalSubjects > 0 ? min(100, ($totalSubjects * 15)) : 0;
+
+            // Count invoice statuses
+            $paidInvoices = count(array_filter($this->invoices, fn($inv) => $inv['status'] === 'paid'));
+            $pendingInvoices = count(array_filter($this->invoices, fn($inv) => in_array($inv['status'], ['pending', 'sent'])));
+
+            $this->stats = [
+                'total_subjects' => $totalSubjects,
+                'total_invoices' => $totalInvoices,
+                'total_payments' => $totalPayments,
+                'total_invoice_amount' => $totalInvoiceAmount,
+                'total_paid_amount' => $totalPaidAmount,
+                'outstanding_amount' => $outstandingAmount,
+                'progress_percentage' => $progressPercentage,
+                'paid_invoices' => $paidInvoices,
+                'pending_invoices' => $pendingInvoices,
+                'enrollment_status' => $this->programEnrollment->status,
+            ];
+
+        } catch (\Exception $e) {
+            $this->stats = [
+                'total_subjects' => 0,
+                'total_invoices' => 0,
+                'total_payments' => 0,
+                'total_invoice_amount' => 0,
+                'total_paid_amount' => 0,
+                'outstanding_amount' => 0,
+                'progress_percentage' => 0,
+                'paid_invoices' => 0,
+                'pending_invoices' => 0,
+                'enrollment_status' => $this->programEnrollment->status ?? 'Unknown',
+            ];
+        }
+    }
+
+    // Set active tab
     public function setActiveTab(string $tab): void
     {
         $this->activeTab = $tab;
     }
 
-    // Get enrollment progress
-    public function getEnrollmentProgress()
+    // Navigate to related pages
+    public function redirectToSessions(): void
     {
-        if ($this->subjectEnrollments->isEmpty()) {
-            return 0;
-        }
-
-        $completedSubjects = $this->subjectEnrollments->where('status', 'completed')->count();
-        $totalSubjects = $this->subjectEnrollments->count();
-
-        return round(($completedSubjects / $totalSubjects) * 100);
+        $this->redirect(route('student.sessions.index', ['enrollment' => $this->programEnrollment->id]));
     }
 
-    // Get enrollment status color
-    public function getStatusColor()
+    public function redirectToExams(): void
     {
-        return match($this->programEnrollment->status) {
-            'active' => 'success',
-            'pending' => 'warning',
-            'completed' => 'info',
-            'withdrawn' => 'error',
-            default => 'neutral'
+        $this->redirect(route('student.exams.index', ['enrollment' => $this->programEnrollment->id]));
+    }
+
+    public function redirectToInvoices(): void
+    {
+        $this->redirect(route('student.invoices.index', ['enrollment' => $this->programEnrollment->id]));
+    }
+
+    public function redirectToInvoice(int $invoiceId): void
+    {
+        $this->redirect(route('student.invoices.show', $invoiceId));
+    }
+
+    public function redirectToPayInvoice(int $invoiceId): void
+    {
+        $this->redirect(route('student.invoices.pay', $invoiceId));
+    }
+
+    // Helper functions
+    public function getStatusColor(string $status): string
+    {
+        return match($status) {
+            'Active' => 'bg-green-100 text-green-800',
+            'Inactive' => 'bg-gray-100 text-gray-600',
+            'Completed' => 'bg-blue-100 text-blue-800',
+            'Suspended' => 'bg-red-100 text-red-800',
+            default => 'bg-gray-100 text-gray-600'
         };
     }
 
-    // Get total paid amount
-    public function getTotalPaidAmount()
+    public function getInvoiceStatusColor(string $status): string
     {
-        return $this->invoices->where('status', 'paid')->sum('amount');
+        return match($status) {
+            'paid' => 'bg-green-100 text-green-800',
+            'pending' => 'bg-yellow-100 text-yellow-800',
+            'overdue' => 'bg-red-100 text-red-800',
+            'cancelled' => 'bg-gray-100 text-gray-600',
+            default => 'bg-gray-100 text-gray-600'
+        };
     }
 
-    // Get total due amount
-    public function getTotalDueAmount()
+    public function formatCurrency(float $amount): string
     {
-        return $this->invoices->where('status', 'unpaid')->sum('amount');
-    }
-
-    // View certificate if available
-    public function viewCertificate()
-    {
-        if ($this->programEnrollment->status !== 'completed') {
-            $this->error('Certificate is only available when the program is completed.');
-            return;
-        }
-
-        return redirect()->route('student.enrollments.certificate', $this->programEnrollment->id);
-    }
-
-    // View subject details
-    public function viewSubject($subjectEnrollmentId)
-    {
-        return redirect()->route('student.subjects.show', $subjectEnrollmentId);
-    }
-
-    // View invoice details
-    public function viewInvoice($invoiceId)
-    {
-        return redirect()->route('student.invoices.show', $invoiceId);
-    }
-
-    // Go back to enrollments list
-    public function backToList()
-    {
-        return redirect()->route('student.enrollments.index');
-    }
-
-    // Request withdrawal from program
-    public function requestWithdrawal()
-    {
-        if ($this->programEnrollment->status === 'withdrawn') {
-            $this->error('This enrollment is already withdrawn.');
-            return;
-        }
-
-        if ($this->programEnrollment->status === 'completed') {
-            $this->error('Cannot withdraw from a completed program.');
-            return;
-        }
-
-        // Here you would typically show a confirmation modal
-        // For now we'll just set a flag to show our custom confirmation
-        $this->dispatch('confirm-withdrawal');
-    }
-
-    // Confirm withdrawal
-    public function confirmWithdrawal()
-    {
-        try {
-            $oldStatus = $this->programEnrollment->status;
-            $this->programEnrollment->status = 'withdrawal_requested';
-            $this->programEnrollment->save();
-
-            // Log activity
-            ActivityLog::log(
-                Auth::id(),
-                'withdrawal_request',
-                'Student requested withdrawal from program',
-                ProgramEnrollment::class,
-                $this->programEnrollment->id,
-                [
-                    'ip' => request()->ip(),
-                    'old_status' => $oldStatus,
-                    'new_status' => 'withdrawal_requested'
-                ]
-            );
-
-            $this->success('Withdrawal request submitted successfully. An administrator will review your request.');
-            $this->loadRelationships();
-        } catch (\Exception $e) {
-            $this->error('Failed to submit withdrawal request: ' . $e->getMessage());
-        }
+        return ' . number_format($amount, 2);
     }
 
     public function with(): array
     {
         return [
-            'enrollmentProgress' => $this->getEnrollmentProgress(),
-            'statusColor' => $this->getStatusColor(),
-            'totalPaidAmount' => $this->getTotalPaidAmount(),
-            'totalDueAmount' => $this->getTotalDueAmount(),
+            // Empty array - we use computed properties instead
         ];
     }
-};
-?>
-
+};?>
 <div>
     <!-- Page header -->
-    <x-header title="Enrollment Details" separator back-button back-url="{{ route('student.enrollments.index') }}">
+    <x-header title="Enrollment Details" separator>
         <x-slot:subtitle>
-            {{ $childProfile->first_name }} {{ $childProfile->last_name }} - {{ $curriculum->name }}
+            {{ $programEnrollment->curriculum->name ?? 'Unknown Program' }} - {{ $programEnrollment->academicYear->name ?? 'Unknown Year' }}
         </x-slot:subtitle>
 
         <x-slot:actions>
-            @if($programEnrollment->status === 'completed')
-                <x-button
-                    label="Certificate"
-                    icon="o-document-check"
-                    color="secondary"
-                    wire:click="viewCertificate"
-                    responsive />
-            @endif
-
-            @if(in_array($programEnrollment->status, ['active', 'pending']))
-                <x-button
-                    label="Request Withdrawal"
-                    icon="o-exclamation-circle"
-                    color="error"
-                    wire:click="requestWithdrawal"
-                    responsive />
-            @endif
+            <x-button
+                label="Back to Enrollments"
+                icon="o-arrow-left"
+                link="{{ route('student.enrollments.index') }}"
+                class="btn-ghost"
+            />
         </x-slot:actions>
     </x-header>
 
-    <!-- Program Enrollment Details -->
-    <div class="grid grid-cols-1 gap-6 mb-6 md:grid-cols-3">
-        <!-- Left column - Enrollment metadata -->
-        <div class="col-span-1">
-            <x-card title="Enrollment Information">
-                <div class="space-y-4">
-                    <div>
-                        <div class="text-sm font-medium text-gray-500">Status</div>
-                        <div class="mt-1">
-                            <x-badge
-                                :label="ucfirst($programEnrollment->status)"
-                                :color="$statusColor"
-                                size="lg" />
-                        </div>
-                    </div>
-
-                    <div>
-                        <div class="text-sm font-medium text-gray-500">Academic Year</div>
-                        <div class="mt-1">{{ $academicYear->name }}</div>
-                    </div>
-
-                    <div>
-                        <div class="text-sm font-medium text-gray-500">Curriculum</div>
-                        <div class="mt-1">{{ $curriculum->name }}</div>
-                    </div>
-
-                    <div>
-                        <div class="text-sm font-medium text-gray-500">Enrollment Date</div>
-                        <div class="mt-1">{{ $programEnrollment->created_at->format('M d, Y') }}</div>
-                    </div>
-
-                    <div>
-                        <div class="text-sm font-medium text-gray-500">Payment Plan</div>
-                        <div class="mt-1">{{ $paymentPlan->name ?? 'N/A' }}</div>
-                    </div>
-
-                    <div>
-                        <div class="text-sm font-medium text-gray-500">Progress</div>
-                        <div class="mt-1">
-                            <div class="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
-                                <div class="bg-success h-2.5 rounded-full" style="width: {{ $enrollmentProgress }}%"></div>
-                            </div>
-                            <div class="mt-1 text-sm">{{ $enrollmentProgress }}% Complete</div>
-                        </div>
-                    </div>
+    <!-- Status and Progress Overview -->
+    <div class="grid grid-cols-1 gap-6 mb-8 md:grid-cols-4">
+        <x-card>
+            <div class="p-6 text-center">
+                <div class="mb-3">
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium {{ $this->getStatusColor($stats['enrollment_status']) }}">
+                        {{ $stats['enrollment_status'] }}
+                    </span>
                 </div>
-            </x-card>
-
-            <!-- Financial Summary -->
-            <x-card title="Financial Summary" class="mt-4">
-                <div class="space-y-4">
-                    <div>
-                        <div class="text-sm font-medium text-gray-500">Total Amount</div>
-                        <div class="mt-1 text-xl font-semibold">
-                            ${{ number_format($totalPaidAmount + $totalDueAmount, 2) }}
-                        </div>
-                    </div>
-
-                    <div>
-                        <div class="text-sm font-medium text-success">Paid</div>
-                        <div class="mt-1 font-semibold text-success">
-                            ${{ number_format($totalPaidAmount, 2) }}
-                        </div>
-                    </div>
-
-                    <div>
-                        <div class="text-sm font-medium text-error">Outstanding</div>
-                        <div class="mt-1 font-semibold text-error">
-                            ${{ number_format($totalDueAmount, 2) }}
-                        </div>
-                    </div>
+                <div class="text-2xl font-bold text-gray-900">{{ $stats['progress_percentage'] }}%</div>
+                <div class="text-sm text-gray-500">Progress</div>
+                <div class="w-full h-2 mt-2 bg-gray-200 rounded-full">
+                    <div class="h-2 transition-all duration-300 bg-blue-600 rounded-full" style="width: {{ $stats['progress_percentage'] }}%"></div>
                 </div>
-            </x-card>
+            </div>
+        </x-card>
+
+        <x-card>
+            <div class="p-6 text-center">
+                <div class="p-3 mx-auto mb-3 bg-blue-100 rounded-full w-fit">
+                    <x-icon name="o-book-open" class="w-6 h-6 text-blue-600" />
+                </div>
+                <div class="text-2xl font-bold text-blue-600">{{ $stats['total_subjects'] }}</div>
+                <div class="text-sm text-gray-500">Subjects</div>
+            </div>
+        </x-card>
+
+        <x-card>
+            <div class="p-6 text-center">
+                <div class="p-3 mx-auto mb-3 bg-green-100 rounded-full w-fit">
+                    <x-icon name="o-currency-dollar" class="w-6 h-6 text-green-600" />
+                </div>
+                <div class="text-2xl font-bold text-green-600">{{ $this->formatCurrency($stats['total_paid_amount']) }}</div>
+                <div class="text-sm text-gray-500">Paid</div>
+            </div>
+        </x-card>
+
+        <x-card>
+            <div class="p-6 text-center">
+                <div class="p-3 mx-auto mb-3 bg-orange-100 rounded-full w-fit">
+                    <x-icon name="o-exclamation-triangle" class="w-6 h-6 text-orange-600" />
+                </div>
+                <div class="text-2xl font-bold text-orange-600">{{ $this->formatCurrency($stats['outstanding_amount']) }}</div>
+                <div class="text-sm text-gray-500">Outstanding</div>
+            </div>
+        </x-card>
+    </div>
+
+    <!-- Tab Navigation -->
+    <div class="mb-6">
+        <div class="border-b border-gray-200">
+            <nav class="flex -mb-px space-x-8" aria-label="Tabs">
+                <button
+                    wire:click="setActiveTab('overview')"
+                    class="py-2 px-1 border-b-2 font-medium text-sm {{ $activeTab === 'overview' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300' }}"
+                >
+                    <x-icon name="o-home" class="inline w-4 h-4 mr-1" />
+                    Overview
+                </button>
+                <button
+                    wire:click="setActiveTab('subjects')"
+                    class="py-2 px-1 border-b-2 font-medium text-sm {{ $activeTab === 'subjects' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300' }}"
+                >
+                    <x-icon name="o-book-open" class="inline w-4 h-4 mr-1" />
+                    Subjects ({{ $stats['total_subjects'] }})
+                </button>
+                <button
+                    wire:click="setActiveTab('financial')"
+                    class="py-2 px-1 border-b-2 font-medium text-sm {{ $activeTab === 'financial' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300' }}"
+                >
+                    <x-icon name="o-currency-dollar" class="inline w-4 h-4 mr-1" />
+                    Financial ({{ $stats['total_invoices'] }})
+                </button>
+                <button
+                    wire:click="setActiveTab('activity')"
+                    class="py-2 px-1 border-b-2 font-medium text-sm {{ $activeTab === 'activity' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300' }}"
+                >
+                    <x-icon name="o-clock" class="inline w-4 h-4 mr-1" />
+                    Activity
+                </button>
+            </nav>
         </div>
+    </div>
 
-        <!-- Right column - Details tabs -->
-        <div class="col-span-1 md:col-span-2">
-            <x-card>
-                <div class="mb-4 border-b border-gray-200">
-                    <ul class="flex flex-wrap -mb-px text-sm font-medium text-center" role="tablist">
-                        <li class="mr-2" role="presentation">
-                            <button
-                                class="inline-block p-4 border-b-2 rounded-t-lg {{ $activeTab == 'subjects' ? 'border-primary text-primary' : 'border-transparent hover:text-gray-600 hover:border-gray-300' }}"
-                                wire:click="setActiveTab('subjects')"
-                                type="button"
-                                role="tab">
-                                Subject Enrollments
-                            </button>
-                        </li>
-                        <li class="mr-2" role="presentation">
-                            <button
-                                class="inline-block p-4 border-b-2 rounded-t-lg {{ $activeTab == 'invoices' ? 'border-primary text-primary' : 'border-transparent hover:text-gray-600 hover:border-gray-300' }}"
-                                wire:click="setActiveTab('invoices')"
-                                type="button"
-                                role="tab">
-                                Invoices
-                            </button>
-                        </li>
-                        <li role="presentation">
-                            <button
-                                class="inline-block p-4 border-b-2 rounded-t-lg {{ $activeTab == 'notes' ? 'border-primary text-primary' : 'border-transparent hover:text-gray-600 hover:border-gray-300' }}"
-                                wire:click="setActiveTab('notes')"
-                                type="button"
-                                role="tab">
-                                Notes
-                            </button>
-                        </li>
-                    </ul>
+    <!-- Tab Content -->
+    <div class="tab-content">
+        <!-- Overview Tab -->
+        @if($activeTab === 'overview')
+            <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+                <!-- Left Column - Main Details -->
+                <div class="space-y-6 lg:col-span-2">
+                    <!-- Program Information -->
+                    <x-card title="Program Information">
+                        <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                            <div>
+                                <label class="block mb-1 text-sm font-medium text-gray-700">Program Name</label>
+                                <p class="text-sm text-gray-900">{{ $programEnrollment->curriculum->name ?? 'N/A' }}</p>
+                            </div>
+                            <div>
+                                <label class="block mb-1 text-sm font-medium text-gray-700">Program Code</label>
+                                <p class="font-mono text-sm text-gray-900">{{ $programEnrollment->curriculum->code ?? 'N/A' }}</p>
+                            </div>
+                            <div>
+                                <label class="block mb-1 text-sm font-medium text-gray-700">Academic Year</label>
+                                <p class="text-sm text-gray-900">{{ $programEnrollment->academicYear->name ?? 'N/A' }}</p>
+                            </div>
+                            <div>
+                                <label class="block mb-1 text-sm font-medium text-gray-700">Enrollment Status</label>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $this->getStatusColor($programEnrollment->status) }}">
+                                    {{ $programEnrollment->status }}
+                                </span>
+                            </div>
+                            @if($programEnrollment->curriculum && $programEnrollment->curriculum->description)
+                                <div class="md:col-span-2">
+                                    <label class="block mb-1 text-sm font-medium text-gray-700">Description</label>
+                                    <p class="text-sm text-gray-900">{{ $programEnrollment->curriculum->description }}</p>
+                                </div>
+                            @endif
+                        </div>
+                    </x-card>
+
+                    <!-- Student Information -->
+                    @if($programEnrollment->childProfile)
+                        <x-card title="Student Information">
+                            <div class="flex items-center mb-4 space-x-4">
+                                <div class="avatar">
+                                    <div class="w-16 h-16 rounded-full">
+                                        <img src="https://ui-avatars.com/api/?name={{ urlencode($programEnrollment->childProfile->full_name) }}&color=7F9CF5&background=EBF4FF" alt="{{ $programEnrollment->childProfile->full_name }}" />
+                                    </div>
+                                </div>
+                                <div>
+                                    <h3 class="text-lg font-semibold">{{ $programEnrollment->childProfile->full_name }}</h3>
+                                    @if($programEnrollment->childProfile->age)
+                                        <p class="text-sm text-gray-500">Age: {{ $programEnrollment->childProfile->age }}</p>
+                                    @endif
+                                    @if($programEnrollment->childProfile->email)
+                                        <p class="text-sm text-gray-500">{{ $programEnrollment->childProfile->email }}</p>
+                                    @endif
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                @if($programEnrollment->childProfile->phone)
+                                    <div>
+                                        <label class="block mb-1 text-sm font-medium text-gray-700">Phone</label>
+                                        <p class="text-sm text-gray-900">{{ $programEnrollment->childProfile->phone }}</p>
+                                    </div>
+                                @endif
+                                @if($programEnrollment->childProfile->date_of_birth)
+                                    <div>
+                                        <label class="block mb-1 text-sm font-medium text-gray-700">Date of Birth</label>
+                                        <p class="text-sm text-gray-900">{{ $programEnrollment->childProfile->date_of_birth->format('M d, Y') }}</p>
+                                    </div>
+                                @endif
+                            </div>
+                        </x-card>
+                    @endif
+
+                    <!-- Payment Plan -->
+                    @if($programEnrollment->paymentPlan)
+                        <x-card title="Payment Plan">
+                            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div>
+                                    <label class="block mb-1 text-sm font-medium text-gray-700">Plan Name</label>
+                                    <p class="text-sm text-gray-900">{{ $programEnrollment->paymentPlan->name }}</p>
+                                </div>
+                                @if($programEnrollment->paymentPlan->amount)
+                                    <div>
+                                        <label class="block mb-1 text-sm font-medium text-gray-700">Amount</label>
+                                        <p class="text-sm text-gray-900">{{ $this->formatCurrency($programEnrollment->paymentPlan->amount) }}</p>
+                                    </div>
+                                @endif
+                            </div>
+                        </x-card>
+                    @endif
                 </div>
 
-                <!-- Tab content -->
-                <div class="tab-content">
-                    <!-- Subjects tab -->
-                    <div class="{{ $activeTab == 'subjects' ? 'block' : 'hidden' }}">
-                        <div class="overflow-x-auto">
-                            <table class="table w-full table-zebra">
-                                <thead>
-                                    <tr>
-                                        <th>Subject</th>
-                                        <th>Code</th>
-                                        <th>Teacher</th>
-                                        <th>Status</th>
-                                        <th>Grade</th>
-                                        <th class="text-right">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @forelse ($subjectEnrollments as $enrollment)
-                                        <tr class="hover">
-                                            <td>{{ $enrollment->subject->name }}</td>
-                                            <td>{{ $enrollment->subject->code }}</td>
-                                            <td>
-                                                @if ($enrollment->teacher)
-                                                    {{ $enrollment->teacher->user->name }}
-                                                @else
-                                                    <span class="text-gray-400">Not Assigned</span>
-                                                @endif
-                                            </td>
-                                            <td>
-                                                @if ($enrollment->status === 'active')
-                                                    <x-badge label="Active" color="success" />
-                                                @elseif ($enrollment->status === 'pending')
-                                                    <x-badge label="Pending" color="warning" />
-                                                @elseif ($enrollment->status === 'completed')
-                                                    <x-badge label="Completed" color="info" />
-                                                @elseif ($enrollment->status === 'withdrawn')
-                                                    <x-badge label="Withdrawn" color="error" />
-                                                @else
-                                                    <x-badge label="{{ ucfirst($enrollment->status) }}" color="neutral" />
-                                                @endif
-                                            </td>
-                                            <td>
-                                                @if ($enrollment->grade)
-                                                    <span class="font-semibold">{{ $enrollment->grade }}</span>
-                                                @else
-                                                    <span class="text-gray-400">-</span>
-                                                @endif
-                                            </td>
-                                            <td class="text-right">
-                                                <x-button
-                                                    icon="o-eye"
-                                                    color="secondary"
-                                                    size="sm"
-                                                    tooltip="View Subject Details"
-                                                    wire:click="viewSubject({{ $enrollment->id }})"
-                                                />
-                                            </td>
-                                        </tr>
-                                    @empty
-                                        <tr>
-                                            <td colspan="6" class="py-6 text-center">
-                                                <div class="flex flex-col items-center justify-center gap-2">
-                                                    <x-icon name="o-book-open" class="w-12 h-12 text-gray-400" />
-                                                    <p class="text-gray-500">No subject enrollments found</p>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    @endforelse
-                                </tbody>
-                            </table>
+                <!-- Right Column - Quick Actions and Summary -->
+                <div class="space-y-6">
+                    <!-- Quick Actions -->
+                    <x-card title="Quick Actions">
+                        <div class="space-y-3">
+                            <x-button
+                                label="View Sessions"
+                                icon="o-calendar"
+                                wire:click="redirectToSessions"
+                                class="w-full btn-outline"
+                            />
+                            <x-button
+                                label="View Exams"
+                                icon="o-document-text"
+                                wire:click="redirectToExams"
+                                class="w-full btn-outline"
+                            />
+                            <x-button
+                                label="View Invoices"
+                                icon="o-currency-dollar"
+                                wire:click="redirectToInvoices"
+                                class="w-full btn-outline"
+                            />
+                            @if($stats['outstanding_amount'] > 0)
+                                <x-button
+                                    label="Make Payment"
+                                    icon="o-credit-card"
+                                    wire:click="redirectToInvoices"
+                                    class="w-full btn-primary"
+                                />
+                            @endif
                         </div>
-                    </div>
+                    </x-card>
 
-                    <!-- Invoices tab -->
-                    <div class="{{ $activeTab == 'invoices' ? 'block' : 'hidden' }}">
+                    <!-- Financial Summary -->
+                    <x-card title="Financial Summary">
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-gray-600">Total Invoiced</span>
+                                <span class="font-medium">{{ $this->formatCurrency($stats['total_invoice_amount']) }}</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-gray-600">Total Paid</span>
+                                <span class="font-medium text-green-600">{{ $this->formatCurrency($stats['total_paid_amount']) }}</span>
+                            </div>
+                            <div class="flex items-center justify-between pt-2 border-t">
+                                <span class="text-sm font-medium text-gray-900">Outstanding</span>
+                                <span class="font-bold {{ $stats['outstanding_amount'] > 0 ? 'text-red-600' : 'text-green-600' }}">
+                                    {{ $this->formatCurrency($stats['outstanding_amount']) }}
+                                </span>
+                            </div>
+                        </div>
+                    </x-card>
+
+                    <!-- Enrollment Timeline -->
+                    <x-card title="Important Dates">
+                        <div class="space-y-3">
+                            <div class="flex items-center text-sm">
+                                <x-icon name="o-calendar-days" class="w-4 h-4 mr-2 text-blue-500" />
+                                <div>
+                                    <div class="font-medium">Enrolled</div>
+                                    <div class="text-gray-500">{{ $programEnrollment->created_at->format('M d, Y') }}</div>
+                                </div>
+                            </div>
+                            @if($programEnrollment->academicYear)
+                                <div class="flex items-center text-sm">
+                                    <x-icon name="o-play" class="w-4 h-4 mr-2 text-green-500" />
+                                    <div>
+                                        <div class="font-medium">Academic Year Start</div>
+                                        <div class="text-gray-500">{{ $programEnrollment->academicYear->start_date ? $programEnrollment->academicYear->start_date->format('M d, Y') : 'Not set' }}</div>
+                                    </div>
+                                </div>
+                                <div class="flex items-center text-sm">
+                                    <x-icon name="o-stop" class="w-4 h-4 mr-2 text-red-500" />
+                                    <div>
+                                        <div class="font-medium">Academic Year End</div>
+                                        <div class="text-gray-500">{{ $programEnrollment->academicYear->end_date ? $programEnrollment->academicYear->end_date->format('M d, Y') : 'Not set' }}</div>
+                                    </div>
+                                </div>
+                            @endif
+                        </div>
+                    </x-card>
+                </div>
+            </div>
+        @endif
+
+        <!-- Subjects Tab -->
+        @if($activeTab === 'subjects')
+            <x-card title="Enrolled Subjects">
+                @if(count($subjectEnrollments) > 0)
+                    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                        @foreach($subjectEnrollments as $subjectEnrollment)
+                            <div class="p-4 transition-shadow border border-gray-200 rounded-lg hover:shadow-md">
+                                <div class="flex items-start justify-between mb-3">
+                                    <div>
+                                        <h4 class="font-semibold text-gray-900">{{ $subjectEnrollment['subject']['name'] ?? 'Unknown Subject' }}</h4>
+                                        @if($subjectEnrollment['subject']['code'])
+                                            <p class="font-mono text-sm text-gray-500">{{ $subjectEnrollment['subject']['code'] }}</p>
+                                        @endif
+                                    </div>
+                                    <x-icon name="o-book-open" class="w-5 h-5 text-blue-500" />
+                                </div>
+
+                                @if($subjectEnrollment['subject']['description'])
+                                    <p class="mb-3 text-sm text-gray-600">{{ Str::limit($subjectEnrollment['subject']['description'], 100) }}</p>
+                                @endif
+
+                                <div class="flex items-center justify-between text-xs text-gray-500">
+                                    <span>Enrolled: {{ \Carbon\Carbon::parse($subjectEnrollment['created_at'])->format('M d, Y') }}</span>
+                                    @if($subjectEnrollment['subject']['credits'])
+                                        <span>{{ $subjectEnrollment['subject']['credits'] }} Credits</span>
+                                    @endif
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                @else
+                    <div class="py-8 text-center">
+                        <x-icon name="o-book-open" class="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                        <h3 class="mb-2 text-lg font-medium text-gray-900">No Subjects Enrolled</h3>
+                        <p class="text-gray-500">No subjects have been assigned to this enrollment yet.</p>
+                    </div>
+                @endif
+            </x-card>
+        @endif
+
+        <!-- Financial Tab -->
+        @if($activeTab === 'financial')
+            <div class="space-y-6">
+                <!-- Financial Overview -->
+                <div class="grid grid-cols-1 gap-6 md:grid-cols-3">
+                    <x-card>
+                        <div class="p-6 text-center">
+                            <div class="text-2xl font-bold text-blue-600">{{ $stats['total_invoices'] }}</div>
+                            <div class="text-sm text-gray-500">Total Invoices</div>
+                        </div>
+                    </x-card>
+                    <x-card>
+                        <div class="p-6 text-center">
+                            <div class="text-2xl font-bold text-green-600">{{ $stats['paid_invoices'] }}</div>
+                            <div class="text-sm text-gray-500">Paid Invoices</div>
+                        </div>
+                    </x-card>
+                    <x-card>
+                        <div class="p-6 text-center">
+                            <div class="text-2xl font-bold text-orange-600">{{ $stats['pending_invoices'] }}</div>
+                            <div class="text-sm text-gray-500">Pending Invoices</div>
+                        </div>
+                    </x-card>
+                </div>
+
+                <!-- Invoices List -->
+                <x-card title="Recent Invoices">
+                    @if(count($invoices) > 0)
                         <div class="overflow-x-auto">
-                            <table class="table w-full table-zebra">
+                            <table class="table w-full">
                                 <thead>
                                     <tr>
-                                        <th>Invoice Number</th>
+                                        <th>Invoice #</th>
                                         <th>Date</th>
                                         <th>Due Date</th>
                                         <th>Amount</th>
                                         <th>Status</th>
-                                        <th class="text-right">Actions</th>
+                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @forelse ($invoices as $invoice)
+                                    @foreach(array_slice($invoices, 0, 5) as $invoice)
                                         <tr class="hover">
-                                            <td>{{ $invoice->invoice_number }}</td>
-                                            <td>{{ $invoice->created_at->format('M d, Y') }}</td>
-                                            <td>{{ $invoice->due_date->format('M d, Y') }}</td>
-                                            <td>${{ number_format($invoice->amount, 2) }}</td>
                                             <td>
-                                                @if ($invoice->status === 'paid')
-                                                    <x-badge label="Paid" color="success" />
-                                                @elseif ($invoice->status === 'unpaid')
-                                                    <x-badge label="Unpaid" color="warning" />
-                                                @elseif ($invoice->status === 'overdue')
-                                                    <x-badge label="Overdue" color="error" />
-                                                @elseif ($invoice->status === 'cancelled')
-                                                    <x-badge label="Cancelled" color="neutral" />
-                                                @else
-                                                    <x-badge label="{{ ucfirst($invoice->status) }}" color="neutral" />
-                                                @endif
+                                                <button
+                                                    wire:click="redirectToInvoice({{ $invoice['id'] }})"
+                                                    class="font-mono text-sm text-blue-600 underline hover:text-blue-800"
+                                                >
+                                                    {{ $invoice['invoice_number'] }}
+                                                </button>
                                             </td>
-                                            <td class="text-right">
-                                                <div class="flex justify-end gap-2">
-                                                    <x-button
-                                                        icon="o-eye"
-                                                        color="secondary"
-                                                        size="sm"
-                                                        tooltip="View Invoice Details"
-                                                        wire:click="viewInvoice({{ $invoice->id }})"
-                                                    />
-
-                                                    @if ($invoice->status === 'unpaid' || $invoice->status === 'overdue')
-                                                        <x-button
-                                                            icon="o-credit-card"
-                                                            color="primary"
-                                                            size="sm"
-                                                            tooltip="Pay Invoice"
-                                                            href="{{ route('student.payments.create', ['invoice' => $invoice->id]) }}"
-                                                        />
+                                            <td>{{ \Carbon\Carbon::parse($invoice['invoice_date'])->format('M d, Y') }}</td>
+                                            <td>{{ \Carbon\Carbon::parse($invoice['due_date'])->format('M d, Y') }}</td>
+                                            <td class="font-medium">{{ $this->formatCurrency($invoice['amount']) }}</td>
+                                            <td>
+                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $this->getInvoiceStatusColor($invoice['status']) }}">
+                                                    {{ ucfirst($invoice['status']) }}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <div class="flex gap-2">
+                                                    <button
+                                                        wire:click="redirectToInvoice({{ $invoice['id'] }})"
+                                                        class="p-1 text-gray-600 bg-gray-100 rounded hover:text-gray-900 hover:bg-gray-200"
+                                                        title="View"
+                                                    >
+                                                        👁️
+                                                    </button>
+                                                    @if(in_array($invoice['status'], ['pending', 'sent', 'overdue']))
+                                                        <button
+                                                            wire:click="redirectToPayInvoice({{ $invoice['id'] }})"
+                                                            class="p-1 text-green-600 bg-green-100 rounded hover:text-green-900 hover:bg-green-200"
+                                                            title="Pay"
+                                                        >
+                                                            💳
+                                                        </button>
                                                     @endif
                                                 </div>
                                             </td>
                                         </tr>
-                                    @empty
-                                        <tr>
-                                            <td colspan="6" class="py-6 text-center">
-                                                <div class="flex flex-col items-center justify-center gap-2">
-                                                    <x-icon name="o-document-text" class="w-12 h-12 text-gray-400" />
-                                                    <p class="text-gray-500">No invoices found</p>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    @endforelse
+                                    @endforeach
                                 </tbody>
                             </table>
                         </div>
-                    </div>
 
-                    <!-- Notes tab -->
-                    <div class="{{ $activeTab == 'notes' ? 'block' : 'hidden' }}">
-                        <div class="space-y-4">
-                            @if ($programEnrollment->notes)
-                                <div class="p-4 rounded-lg bg-base-200">
-                                    <p class="whitespace-pre-line">{{ $programEnrollment->notes }}</p>
-                                </div>
-                            @else
-                                <div class="flex flex-col items-center justify-center gap-2 py-6">
-                                    <x-icon name="o-document-text" class="w-12 h-12 text-gray-400" />
-                                    <p class="text-gray-500">No notes available for this enrollment</p>
-                                </div>
-                            @endif
+                        @if(count($invoices) > 5)
+                            <div class="mt-4 text-center">
+                                <x-button
+                                    label="View All Invoices ({{ count($invoices) }})"
+                                    icon="o-arrow-right"
+                                    wire:click="redirectToInvoices"
+                                    class="btn-outline"
+                                />
+                            </div>
+                        @endif
+                    @else
+                        <div class="py-8 text-center">
+                            <x-icon name="o-currency-dollar" class="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                            <h3 class="mb-2 text-lg font-medium text-gray-900">No Invoices</h3>
+                            <p class="text-gray-500">No invoices have been generated for this enrollment yet.</p>
                         </div>
-                    </div>
-                </div>
-            </x-card>
-        </div>
-    </div>
+                    @endif
+                </x-card>
 
-    <!-- Withdrawal confirmation modal -->
-    <x-modal wire:model="confirmingWithdrawal" title="Confirm Withdrawal">
-        <div class="space-y-4">
-            <p class="text-gray-600">
-                Are you sure you want to request withdrawal from this program? This action cannot be undone.
-            </p>
+                <!-- Recent Payments -->
+                @if(count($payments) > 0)
+                    <x-card title="Recent Payments">
+                        <div class="overflow-x-auto">
+                            <table class="table w-full">
+                                <thead>
+                                    <tr>
+                                        <th>Payment Date</th>
+                                        <th>Amount</th>
+                                        <th>Method</th>
+                                        <th>Reference</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach(array_slice($payments, 0, 5) as $payment)
+                                        <tr class="hover">
+                                            <td>{{ \Carbon\Carbon::parse($payment['payment_date'])->format('M d, Y') }}</td>
+                                            <td class="font-medium text-green-600">{{ $this->formatCurrency($payment['amount']) }}</td>
+                                            <td>{{ $payment['payment_method'] ?? 'N/A' }}</td>
+                                            <td class="font-mono text-sm">{{ $payment['reference_number'] ?? 'N/A' }}</td>
+                                            <td>
+                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                    {{ ucfirst($payment['status'] ?? 'completed') }}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    </x-card>
+                @endif
+            </div>
+        @endif
 
-            <div class="p-4 rounded-lg bg-warning-100 text-warning-800">
-                <div class="flex items-start">
-                    <x-icon name="o-exclamation-triangle" class="flex-shrink-0 w-5 h-5 mr-2" />
-                    <div>
-                        <p class="font-medium">Important information:</p>
-                        <ul class="mt-1 text-sm list-disc list-inside">
-                            <li>Your request will be reviewed by an administrator</li>
-                            <li>Refunds are subject to the terms specified in your enrollment agreement</li>
-                            <li>You may continue to access course materials until your request is processed</li>
+        <!-- Activity Tab -->
+        @if($activeTab === 'activity')
+            <x-card title="Enrollment Activity">
+                <div class="space-y-6">
+                    <!-- Enrollment Timeline -->
+                    <div class="flow-root">
+                        <ul role="list" class="-mb-8">
+                            <!-- Enrollment Created -->
+                            <li>
+                                <div class="relative pb-8">
+                                    <span class="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200" aria-hidden="true"></span>
+                                    <div class="relative flex space-x-3">
+                                        <div>
+                                            <span class="flex items-center justify-center w-8 h-8 bg-blue-500 rounded-full ring-8 ring-white">
+                                                <x-icon name="o-plus" class="w-4 h-4 text-white" />
+                                            </span>
+                                        </div>
+                                        <div class="flex min-w-0 flex-1 justify-between space-x-4 pt-1.5">
+                                            <div>
+                                                <p class="text-sm text-gray-500">
+                                                    Enrollment created for
+                                                    <span class="font-medium text-gray-900">{{ $programEnrollment->curriculum->name ?? 'Unknown Program' }}</span>
+                                                </p>
+                                            </div>
+                                            <div class="text-sm text-right text-gray-500 whitespace-nowrap">
+                                                <time datetime="{{ $programEnrollment->created_at->toISOString() }}">
+                                                    {{ $programEnrollment->created_at->format('M d, Y') }}
+                                                </time>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </li>
+
+                            <!-- Subject Enrollments -->
+                            @foreach(array_slice($subjectEnrollments, 0, 3) as $subjectEnrollment)
+                                <li>
+                                    <div class="relative pb-8">
+                                        @if(!$loop->last || count($invoices) > 0 || count($payments) > 0)
+                                            <span class="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200" aria-hidden="true"></span>
+                                        @endif
+                                        <div class="relative flex space-x-3">
+                                            <div>
+                                                <span class="flex items-center justify-center w-8 h-8 bg-green-500 rounded-full ring-8 ring-white">
+                                                    <x-icon name="o-book-open" class="w-4 h-4 text-white" />
+                                                </span>
+                                            </div>
+                                            <div class="flex min-w-0 flex-1 justify-between space-x-4 pt-1.5">
+                                                <div>
+                                                    <p class="text-sm text-gray-500">
+                                                        Enrolled in subject
+                                                        <span class="font-medium text-gray-900">{{ $subjectEnrollment['subject']['name'] ?? 'Unknown Subject' }}</span>
+                                                    </p>
+                                                </div>
+                                                <div class="text-sm text-right text-gray-500 whitespace-nowrap">
+                                                    <time datetime="{{ $subjectEnrollment['created_at'] }}">
+                                                        {{ \Carbon\Carbon::parse($subjectEnrollment['created_at'])->format('M d, Y') }}
+                                                    </time>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </li>
+                            @endforeach
+
+                            <!-- Recent Invoices -->
+                            @foreach(array_slice($invoices, 0, 2) as $invoice)
+                                <li>
+                                    <div class="relative pb-8">
+                                        @if(!$loop->last || count($payments) > 0)
+                                            <span class="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200" aria-hidden="true"></span>
+                                        @endif
+                                        <div class="relative flex space-x-3">
+                                            <div>
+                                                <span class="flex items-center justify-center w-8 h-8 bg-yellow-500 rounded-full ring-8 ring-white">
+                                                    <x-icon name="o-document-text" class="w-4 h-4 text-white" />
+                                                </span>
+                                            </div>
+                                            <div class="flex min-w-0 flex-1 justify-between space-x-4 pt-1.5">
+                                                <div>
+                                                    <p class="text-sm text-gray-500">
+                                                        Invoice
+                                                        <span class="font-medium text-gray-900">{{ $invoice['invoice_number'] }}</span>
+                                                        generated for {{ $this->formatCurrency($invoice['amount']) }}
+                                                    </p>
+                                                </div>
+                                                <div class="text-sm text-right text-gray-500 whitespace-nowrap">
+                                                    <time datetime="{{ $invoice['invoice_date'] }}">
+                                                        {{ \Carbon\Carbon::parse($invoice['invoice_date'])->format('M d, Y') }}
+                                                    </time>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </li>
+                            @endforeach
+
+                            <!-- Recent Payments -->
+                            @foreach(array_slice($payments, 0, 2) as $payment)
+                                <li>
+                                    <div class="relative {{ !$loop->last ? 'pb-8' : '' }}">
+                                        @if(!$loop->last)
+                                            <span class="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200" aria-hidden="true"></span>
+                                        @endif
+                                        <div class="relative flex space-x-3">
+                                            <div>
+                                                <span class="flex items-center justify-center w-8 h-8 bg-green-500 rounded-full ring-8 ring-white">
+                                                    <x-icon name="o-currency-dollar" class="w-4 h-4 text-white" />
+                                                </span>
+                                            </div>
+                                            <div class="flex min-w-0 flex-1 justify-between space-x-4 pt-1.5">
+                                                <div>
+                                                    <p class="text-sm text-gray-500">
+                                                        Payment of
+                                                        <span class="font-medium text-gray-900">{{ $this->formatCurrency($payment['amount']) }}</span>
+                                                        received
+                                                    </p>
+                                                </div>
+                                                <div class="text-sm text-right text-gray-500 whitespace-nowrap">
+                                                    <time datetime="{{ $payment['payment_date'] }}">
+                                                        {{ \Carbon\Carbon::parse($payment['payment_date'])->format('M d, Y') }}
+                                                    </time>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </li>
+                            @endforeach
                         </ul>
                     </div>
+
+                    <!-- Status Changes (if available) -->
+                    @if($programEnrollment->updated_at != $programEnrollment->created_at)
+                        <div class="pt-6 mt-8 border-t">
+                            <h4 class="mb-4 text-sm font-medium text-gray-900">Status Changes</h4>
+                            <div class="p-4 rounded-lg bg-gray-50">
+                                <div class="flex items-center text-sm text-gray-600">
+                                    <x-icon name="o-clock" class="w-4 h-4 mr-2" />
+                                    <span>Last updated: {{ $programEnrollment->updated_at->format('M d, Y \a\t g:i A') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    @endif
                 </div>
-            </div>
+            </x-card>
+        @endif
+    </div>
+
+    <!-- Quick Action Floating Button -->
+    @if($stats['outstanding_amount'] > 0)
+        <div class="fixed z-50 bottom-6 right-6">
+            <x-button
+                icon="o-credit-card"
+                wire:click="redirectToInvoices"
+                class="shadow-lg btn-circle btn-primary btn-lg"
+                title="Make Payment"
+            />
         </div>
-
-        <x-slot:actions>
-            <x-button label="Cancel" wire:click="$set('confirmingWithdrawal', false)" />
-            <x-button label="Confirm Withdrawal" color="error" wire:click="confirmWithdrawal" />
-        </x-slot:actions>
-    </x-modal>
-
-    <!-- Custom script for withdrawal confirmation -->
-    <script>
-        document.addEventListener('livewire:initialized', () => {
-            @this.on('confirm-withdrawal', () => {
-                @this.set('confirmingWithdrawal', true);
-            });
-        });
-    </script>
+    @endif
 </div>

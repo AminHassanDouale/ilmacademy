@@ -3,9 +3,7 @@
 use App\Models\Invoice;
 use App\Models\ChildProfile;
 use App\Models\ActivityLog;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Livewire\Attributes\Title;
@@ -14,58 +12,171 @@ use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Mary\Traits\Toast;
 
-new #[Title('Invoices')] class extends Component {
+new #[Title('Invoices & Payments')] class extends Component {
     use WithPagination;
     use Toast;
 
-    // Filters and search options
+    // Search and filters
     #[Url]
     public string $search = '';
 
     #[Url]
-    public string $child = '';
+    public string $statusFilter = '';
 
     #[Url]
-    public string $status = '';
+    public string $childFilter = '';
 
     #[Url]
-    public string $period = 'all';
+    public string $dateFrom = '';
 
     #[Url]
-    public string $startDate = '';
+    public string $dateTo = '';
 
     #[Url]
-    public string $endDate = '';
+    public int $perPage = 15;
 
     #[Url]
-    public int $perPage = 10;
+    public array $sortBy = ['column' => 'created_at', 'direction' => 'desc'];
 
-    #[Url]
-    public bool $showFilters = false;
+    // Stats
+    public array $stats = [];
 
-    #[Url]
-    public array $sortBy = ['column' => 'invoice_date', 'direction' => 'desc'];
+    // Filter options
+    public array $statusOptions = [];
+    public array $childOptions = [];
 
     public function mount(): void
     {
-        // Default dates if not set
-        if (empty($this->startDate)) {
-            $this->startDate = Carbon::now()->subMonths(12)->format('Y-m-d');
+        // Set default date range (last 12 months)
+        if (!$this->dateFrom) {
+            $this->dateFrom = now()->subYear()->format('Y-m-d');
+        }
+        if (!$this->dateTo) {
+            $this->dateTo = now()->addMonths(6)->format('Y-m-d'); // Include future invoices
         }
 
-        if (empty($this->endDate)) {
-            $this->endDate = Carbon::now()->format('Y-m-d');
+        // Pre-select child if provided in query
+        if (request()->has('child')) {
+            $childId = request()->get('child');
+            $child = ChildProfile::where('id', $childId)
+                ->where('parent_id', Auth::id())
+                ->first();
+
+            if ($child) {
+                $this->childFilter = (string) $child->id;
+            }
+        }
+
+        // Pre-select status if provided in query
+        if (request()->has('status')) {
+            $this->statusFilter = request()->get('status');
         }
 
         // Log activity
-        ActivityLog::log(
+        ActivityLog::logActivity(
             Auth::id(),
             'access',
-            'Parent accessed invoices page',
-            Invoice::class,
-            null,
-            ['ip' => request()->ip()]
+            'Accessed invoices and payments page'
         );
+
+        $this->loadFilterOptions();
+        $this->loadStats();
+    }
+
+    protected function loadFilterOptions(): void
+    {
+        // Status options
+        $this->statusOptions = [
+            ['id' => '', 'name' => 'All Statuses'],
+            ['id' => 'draft', 'name' => 'Draft'],
+            ['id' => 'sent', 'name' => 'Sent'],
+            ['id' => 'pending', 'name' => 'Pending'],
+            ['id' => 'partially_paid', 'name' => 'Partially Paid'],
+            ['id' => 'paid', 'name' => 'Paid'],
+            ['id' => 'overdue', 'name' => 'Overdue'],
+            ['id' => 'cancelled', 'name' => 'Cancelled'],
+        ];
+
+        // Child options - only children of the authenticated parent
+        try {
+            $children = ChildProfile::where('parent_id', Auth::id())
+                ->orderBy('first_name')
+                ->get();
+
+            $this->childOptions = [
+                ['id' => '', 'name' => 'All Children'],
+                ...$children->map(fn($child) => [
+                    'id' => $child->id,
+                    'name' => $child->full_name
+                ])->toArray()
+            ];
+        } catch (\Exception $e) {
+            $this->childOptions = [['id' => '', 'name' => 'All Children']];
+        }
+    }
+
+    protected function loadStats(): void
+    {
+        try {
+            $invoicesQuery = Invoice::query()
+                ->whereHas('student', function ($query) {
+                    $query->where('parent_id', Auth::id());
+                })
+                ->when($this->dateFrom, function ($query) {
+                    $query->whereDate('invoice_date', '>=', $this->dateFrom);
+                })
+                ->when($this->dateTo, function ($query) {
+                    $query->whereDate('invoice_date', '<=', $this->dateTo);
+                });
+
+            $totalInvoices = $invoicesQuery->count();
+            $totalAmount = $invoicesQuery->sum('amount');
+
+            // Status counts
+            $pendingInvoices = $invoicesQuery->where('status', 'pending')->count();
+            $paidInvoices = $invoicesQuery->where('status', 'paid')->count();
+            $overdueInvoices = $invoicesQuery->where('status', 'overdue')->count();
+
+            // Amount calculations
+            $pendingAmount = Invoice::whereHas('student', function ($query) {
+                $query->where('parent_id', Auth::id());
+            })->where('status', 'pending')->sum('amount');
+
+            $paidAmount = Invoice::whereHas('student', function ($query) {
+                $query->where('parent_id', Auth::id());
+            })->where('status', 'paid')->sum('amount');
+
+            $overdueAmount = Invoice::whereHas('student', function ($query) {
+                $query->where('parent_id', Auth::id());
+            })->where('status', 'overdue')->sum('amount');
+
+            // Get children with invoices
+            $childrenWithInvoices = $invoicesQuery->distinct('child_profile_id')->count('child_profile_id');
+
+            $this->stats = [
+                'total_invoices' => $totalInvoices,
+                'total_amount' => $totalAmount,
+                'pending_invoices' => $pendingInvoices,
+                'paid_invoices' => $paidInvoices,
+                'overdue_invoices' => $overdueInvoices,
+                'pending_amount' => $pendingAmount,
+                'paid_amount' => $paidAmount,
+                'overdue_amount' => $overdueAmount,
+                'children_with_invoices' => $childrenWithInvoices,
+            ];
+        } catch (\Exception $e) {
+            $this->stats = [
+                'total_invoices' => 0,
+                'total_amount' => 0,
+                'pending_invoices' => 0,
+                'paid_invoices' => 0,
+                'overdue_invoices' => 0,
+                'pending_amount' => 0,
+                'paid_amount' => 0,
+                'overdue_amount' => 0,
+                'children_with_invoices' => 0,
+            ];
+        }
     }
 
     // Sort data
@@ -77,477 +188,506 @@ new #[Title('Invoices')] class extends Component {
             $this->sortBy['column'] = $column;
             $this->sortBy['direction'] = 'asc';
         }
-    }
-
-    // Set time period
-    public function setPeriod(string $period): void
-    {
-        $this->period = $period;
-
-        switch ($period) {
-            case 'month':
-                $this->startDate = Carbon::now()->startOfMonth()->format('Y-m-d');
-                $this->endDate = Carbon::now()->endOfMonth()->format('Y-m-d');
-                break;
-            case 'quarter':
-                $this->startDate = Carbon::now()->startOfQuarter()->format('Y-m-d');
-                $this->endDate = Carbon::now()->endOfQuarter()->format('Y-m-d');
-                break;
-            case 'semester':
-                $this->startDate = Carbon::now()->subMonths(6)->format('Y-m-d');
-                $this->endDate = Carbon::now()->format('Y-m-d');
-                break;
-            case 'year':
-                $this->startDate = Carbon::now()->subYear()->format('Y-m-d');
-                $this->endDate = Carbon::now()->format('Y-m-d');
-                break;
-            case 'all':
-                $this->startDate = Carbon::now()->subYears(5)->format('Y-m-d');
-                $this->endDate = Carbon::now()->format('Y-m-d');
-                break;
-            case 'custom':
-                // Keep existing dates
-                break;
-        }
-    }
-
-    // Reset filters
-    public function resetFilters(): void
-    {
-        $this->search = '';
-        $this->child = '';
-        $this->status = '';
-        $this->period = 'all';
-        $this->startDate = Carbon::now()->subMonths(12)->format('Y-m-d');
-        $this->endDate = Carbon::now()->format('Y-m-d');
         $this->resetPage();
     }
 
-    // Get children for this parent
-    public function children()
+    // Navigation methods
+    public function redirectToShow(int $invoiceId): void
     {
-        $parentProfile = Auth::user()->parentProfile;
-
-        if (!$parentProfile) {
-            return collect();
-        }
-
-        return ChildProfile::where('parent_profile_id', $parentProfile->id)
-            ->with('user')
-            ->get()
-            ->map(function ($child) {
-                return [
-                    'id' => $child->id,
-                    'name' => $child->user?->name ?? 'Unknown'
-                ];
-            });
+        $this->redirect(route('parent.invoices.show', $invoiceId));
     }
 
-    // Get filtered invoices
+    public function redirectToPay(int $invoiceId): void
+    {
+        $this->redirect(route('parent.invoices.pay', $invoiceId));
+    }
+
+    // Update methods
+    public function updatedSearch(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedStatusFilter(): void
+    {
+        $this->resetPage();
+        $this->loadStats();
+    }
+
+    public function updatedChildFilter(): void
+    {
+        $this->resetPage();
+        $this->loadStats();
+    }
+
+    public function updatedDateFrom(): void
+    {
+        $this->resetPage();
+        $this->loadStats();
+    }
+
+    public function updatedDateTo(): void
+    {
+        $this->resetPage();
+        $this->loadStats();
+    }
+
+    public function clearFilters(): void
+    {
+        $this->search = '';
+        $this->statusFilter = '';
+        $this->childFilter = '';
+        $this->dateFrom = now()->subYear()->format('Y-m-d');
+        $this->dateTo = now()->addMonths(6)->format('Y-m-d');
+        $this->resetPage();
+        $this->loadStats();
+    }
+
+    // Get filtered and paginated invoices
     public function invoices(): LengthAwarePaginator
     {
-        $parentProfile = Auth::user()->parentProfile;
-
-        if (!$parentProfile) {
-            return new LengthAwarePaginator([], 0, $this->perPage);
-        }
-
-        // Get all children IDs for this parent
-        $childrenIds = $parentProfile->childProfiles()->pluck('id')->toArray();
-
-        if (empty($childrenIds)) {
-            return new LengthAwarePaginator([], 0, $this->perPage);
-        }
-
         return Invoice::query()
-            ->whereIn('child_profile_id', $childrenIds)
-            ->with(['student.user', 'curriculum', 'academicYear'])
-            ->whereBetween('due_date', [$this->startDate, $this->endDate])
+            ->whereHas('student', function ($query) {
+                $query->where('parent_id', Auth::id());
+            })
+            ->with(['student', 'academicYear', 'curriculum', 'programEnrollment', 'payments'])
             ->when($this->search, function (Builder $query) {
-                $query->where(function($q) {
-                    $q->where('invoice_number', 'like', '%' . $this->search . '%')
-                      ->orWhere('description', 'like', '%' . $this->search . '%');
+                $query->where(function ($q) {
+                    $q->where('invoice_number', 'like', "%{$this->search}%")
+                      ->orWhere('description', 'like', "%{$this->search}%")
+                      ->orWhereHas('student', function ($studentQuery) {
+                          $studentQuery->where('first_name', 'like', "%{$this->search}%")
+                                      ->orWhere('last_name', 'like', "%{$this->search}%");
+                      })
+                      ->orWhereHas('curriculum', function ($curriculumQuery) {
+                          $curriculumQuery->where('name', 'like', "%{$this->search}%");
+                      });
                 });
             })
-            ->when($this->child, function (Builder $query) {
-                $query->where('child_profile_id', $this->child);
+            ->when($this->statusFilter, function (Builder $query) {
+                $query->where('status', $this->statusFilter);
             })
-            ->when($this->status, function (Builder $query) {
-                $query->where('status', $this->status);
+            ->when($this->childFilter, function (Builder $query) {
+                $query->where('child_profile_id', $this->childFilter);
+            })
+            ->when($this->dateFrom, function (Builder $query) {
+                $query->whereDate('invoice_date', '>=', $this->dateFrom);
+            })
+            ->when($this->dateTo, function (Builder $query) {
+                $query->whereDate('invoice_date', '<=', $this->dateTo);
             })
             ->orderBy($this->sortBy['column'], $this->sortBy['direction'])
             ->paginate($this->perPage);
     }
 
-    // Get invoice statistics
-    public function invoiceStats()
+    // Helper function to get status color
+    private function getStatusColor(string $status): string
     {
-        $parentProfile = Auth::user()->parentProfile;
-
-        if (!$parentProfile) {
-            return [
-                'total' => 0,
-                'paid' => 0,
-                'pending' => 0,
-                'overdue' => 0,
-                'totalAmount' => 0,
-                'paidAmount' => 0,
-                'pendingAmount' => 0,
-                'overdueAmount' => 0
-            ];
-        }
-
-        $childrenIds = $parentProfile->childProfiles()->pluck('id')->toArray();
-
-        if (empty($childrenIds)) {
-            return [
-                'total' => 0,
-                'paid' => 0,
-                'pending' => 0,
-                'overdue' => 0,
-                'totalAmount' => 0,
-                'paidAmount' => 0,
-                'pendingAmount' => 0,
-                'overdueAmount' => 0
-            ];
-        }
-
-        $invoices = Invoice::whereIn('child_profile_id', $childrenIds)
-            ->whereBetween('due_date', [$this->startDate, $this->endDate])
-            ->when($this->child, function (Builder $query) {
-                $query->where('child_profile_id', $this->child);
-            })
-            ->get();
-
-        $total = $invoices->count();
-        $paid = $invoices->where('status', 'paid')->count();
-        $pending = $invoices->where('status', 'pending')->count();
-        $overdue = $invoices->where('status', 'overdue')->count();
-
-        $totalAmount = $invoices->sum('amount');
-        $paidAmount = $invoices->where('status', 'paid')->sum('amount');
-        $pendingAmount = $invoices->where('status', 'pending')->sum('amount');
-        $overdueAmount = $invoices->where('status', 'overdue')->sum('amount');
-
-        return [
-            'total' => $total,
-            'paid' => $paid,
-            'pending' => $pending,
-            'overdue' => $overdue,
-            'totalAmount' => $totalAmount,
-            'paidAmount' => $paidAmount,
-            'pendingAmount' => $pendingAmount,
-            'overdueAmount' => $overdueAmount
-        ];
+        return match($status) {
+            'draft' => 'bg-gray-100 text-gray-600',
+            'sent' => 'bg-blue-100 text-blue-800',
+            'pending' => 'bg-yellow-100 text-yellow-800',
+            'partially_paid' => 'bg-orange-100 text-orange-800',
+            'paid' => 'bg-green-100 text-green-800',
+            'overdue' => 'bg-red-100 text-red-800',
+            'cancelled' => 'bg-gray-100 text-gray-600',
+            default => 'bg-gray-100 text-gray-600'
+        };
     }
 
-    // Download invoice
-    public function downloadInvoice($invoiceId)
+    // Helper function to get status icon
+    private function getStatusIcon(string $status): string
     {
-        $this->redirect(route('parent.invoices.download', $invoiceId));
+        return match($status) {
+            'draft' => 'o-document',
+            'sent' => 'o-paper-airplane',
+            'pending' => 'o-clock',
+            'partially_paid' => 'o-banknotes',
+            'paid' => 'o-check-circle',
+            'overdue' => 'o-exclamation-triangle',
+            'cancelled' => 'o-x-circle',
+            default => 'o-document'
+        };
     }
 
-    // Pay invoice
-    public function payInvoice($invoiceId)
+    // Format date for display
+    public function formatDate($date): string
     {
-        $this->redirect(route('parent.invoices.pay', $invoiceId));
+        if (!$date) {
+            return 'Not set';
+        }
+
+        if (is_string($date)) {
+            $date = \Carbon\Carbon::parse($date);
+        }
+
+        return $date->format('M d, Y');
+    }
+
+    // Check if invoice is payable
+    private function isPayable(object $invoice): bool
+    {
+        return in_array($invoice->status, ['pending', 'partially_paid', 'overdue']);
     }
 
     public function with(): array
     {
         return [
             'invoices' => $this->invoices(),
-            'children' => $this->children(),
-            'invoiceStats' => $this->invoiceStats(),
         ];
     }
 };?>
 
 <div>
     <!-- Page header -->
-    <x-header title="Invoices" separator progress-indicator>
-        <x-slot:subtitle>
-            View and manage your payment invoices
-        </x-slot:subtitle>
-
+    <x-header title="Invoices & Payments" subtitle="Manage your children's tuition invoices and payments" separator progress-indicator>
         <!-- SEARCH -->
         <x-slot:middle class="!justify-end">
             <x-input placeholder="Search invoices..." wire:model.live.debounce="search" icon="o-magnifying-glass" clearable />
         </x-slot:middle>
-
-        <!-- ACTIONS -->
-        <x-slot:actions>
-            <x-button
-                label="Filters"
-                icon="o-funnel"
-                :badge="count(array_filter([$child, $status, $period !== 'all']))"
-                badge-classes="font-mono"
-                @click="$wire.showFilters = true"
-                class="bg-base-300"
-                responsive />
-        </x-slot:actions>
     </x-header>
 
-    <!-- QUICK STATS PANEL -->
-    <div class="grid grid-cols-2 gap-4 mb-6 md:grid-cols-4">
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-primary">
-                <x-icon name="o-document-text" class="w-8 h-8" />
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 gap-6 mb-8 md:grid-cols-2 lg:grid-cols-4">
+        <x-card>
+            <div class="p-6">
+                <div class="flex items-center">
+                    <div class="p-3 mr-4 bg-blue-100 rounded-full">
+                        <x-icon name="o-document-text" class="w-8 h-8 text-blue-600" />
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-blue-600">{{ number_format($stats['total_invoices']) }}</div>
+                        <div class="text-sm text-gray-500">Total Invoices</div>
+                    </div>
+                </div>
             </div>
-            <div class="stat-title">Total Invoices</div>
-            <div class="stat-value">{{ $invoiceStats['total'] }}</div>
-            <div class="stat-desc">{{ number_format($invoiceStats['totalAmount'], 2) }} Total Amount</div>
-        </div>
+        </x-card>
 
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-success">
-                <x-icon name="o-check-circle" class="w-8 h-8" />
+        <x-card>
+            <div class="p-6">
+                <div class="flex items-center">
+                    <div class="p-3 mr-4 bg-yellow-100 rounded-full">
+                        <x-icon name="o-clock" class="w-8 h-8 text-yellow-600" />
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-yellow-600">{{ number_format($stats['pending_invoices']) }}</div>
+                        <div class="text-sm text-gray-500">Pending</div>
+                    </div>
+                </div>
             </div>
-            <div class="stat-title">Paid</div>
-            <div class="stat-value text-success">{{ $invoiceStats['paid'] }}</div>
-            <div class="stat-desc">{{ number_format($invoiceStats['paidAmount'], 2) }} Paid Amount</div>
-        </div>
+        </x-card>
 
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-warning">
-                <x-icon name="o-clock" class="w-8 h-8" />
+        <x-card>
+            <div class="p-6">
+                <div class="flex items-center">
+                    <div class="p-3 mr-4 bg-green-100 rounded-full">
+                        <x-icon name="o-check-circle" class="w-8 h-8 text-green-600" />
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-green-600">{{ number_format($stats['paid_invoices']) }}</div>
+                        <div class="text-sm text-gray-500">Paid</div>
+                    </div>
+                </div>
             </div>
-            <div class="stat-title">Pending</div>
-            <div class="stat-value text-warning">{{ $invoiceStats['pending'] }}</div>
-            <div class="stat-desc">{{ number_format($invoiceStats['pendingAmount'], 2) }} Pending Amount</div>
-        </div>
+        </x-card>
 
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-error">
-                <x-icon name="o-exclamation-circle" class="w-8 h-8" />
+        <x-card>
+            <div class="p-6">
+                <div class="flex items-center">
+                    <div class="p-3 mr-4 bg-red-100 rounded-full">
+                        <x-icon name="o-exclamation-triangle" class="w-8 h-8 text-red-600" />
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-red-600">{{ number_format($stats['overdue_invoices']) }}</div>
+                        <div class="text-sm text-gray-500">Overdue</div>
+                    </div>
+                </div>
             </div>
-            <div class="stat-title">Overdue</div>
-            <div class="stat-value text-error">{{ $invoiceStats['overdue'] }}</div>
-            <div class="stat-desc">{{ number_format($invoiceStats['overdueAmount'], 2) }} Overdue Amount</div>
-        </div>
+        </x-card>
     </div>
 
-    <!-- DATE RANGE SELECTOR -->
-    <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
-        <div class="flex flex-wrap gap-2">
-            <x-button
-                label="This Month"
-                @click="$wire.setPeriod('month')"
-                class="{{ $period === 'month' ? 'btn-primary' : 'btn-outline' }}"
-                size="sm"
-            />
-            <x-button
-                label="This Quarter"
-                @click="$wire.setPeriod('quarter')"
-                class="{{ $period === 'quarter' ? 'btn-primary' : 'btn-outline' }}"
-                size="sm"
-            />
-            <x-button
-                label="Last 6 Months"
-                @click="$wire.setPeriod('semester')"
-                class="{{ $period === 'semester' ? 'btn-primary' : 'btn-outline' }}"
-                size="sm"
-            />
-            <x-button
-                label="Last Year"
-                @click="$wire.setPeriod('year')"
-                class="{{ $period === 'year' ? 'btn-primary' : 'btn-outline' }}"
-                size="sm"
-            />
-            <x-button
-                label="All Time"
-                @click="$wire.setPeriod('all')"
-                class="{{ $period === 'all' ? 'btn-primary' : 'btn-outline' }}"
-                size="sm"
-            />
-        </div>
+    <!-- Amount Stats -->
+    <div class="grid grid-cols-1 gap-6 mb-8 md:grid-cols-3">
+        <x-card class="border-yellow-200 bg-yellow-50">
+            <div class="p-6 text-center">
+                <div class="text-2xl font-bold text-yellow-600">${{ number_format($stats['pending_amount'], 2) }}</div>
+                <div class="text-sm text-yellow-600">Amount Due</div>
+            </div>
+        </x-card>
 
-        <div class="flex items-center gap-2">
-            <x-input type="date" wire:model.live="startDate" />
-            <span>to</span>
-            <x-input type="date" wire:model.live="endDate" />
-            <x-button
-                label="Apply"
-                icon="o-check"
-                @click="$wire.setPeriod('custom')"
-                class="btn-primary"
-                size="sm"
-            />
-        </div>
+        <x-card class="border-green-200 bg-green-50">
+            <div class="p-6 text-center">
+                <div class="text-2xl font-bold text-green-600">${{ number_format($stats['paid_amount'], 2) }}</div>
+                <div class="text-sm text-green-600">Amount Paid</div>
+            </div>
+        </x-card>
+
+        <x-card class="border-red-200 bg-red-50">
+            <div class="p-6 text-center">
+                <div class="text-2xl font-bold text-red-600">${{ number_format($stats['overdue_amount'], 2) }}</div>
+                <div class="text-sm text-red-600">Overdue Amount</div>
+            </div>
+        </x-card>
     </div>
 
-    <!-- INVOICES TABLE -->
-    <x-card>
-        <div class="overflow-x-auto">
-            <table class="table w-full table-zebra">
-                <thead>
-                    <tr>
-                        <th class="cursor-pointer" wire:click="sortBy('invoice_number')">
-                            <div class="flex items-center">
-                                Invoice #
-                                @if ($sortBy['column'] === 'invoice_number')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
+    <!-- Urgent Actions -->
+    @if($stats['overdue_invoices'] > 0 || $stats['pending_invoices'] > 0)
+        <div class="mb-6">
+            <x-card class="border-orange-200 bg-orange-50">
+                <div class="p-4">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <x-icon name="o-exclamation-triangle" class="w-6 h-6 mr-3 text-orange-600" />
+                            <div>
+                                <div class="font-semibold text-orange-800">Payment Required</div>
+                                <div class="text-sm text-orange-700">
+                                    You have {{ $stats['pending_invoices'] + $stats['overdue_invoices'] }} unpaid invoice(s)
+                                    totaling ${{ number_format($stats['pending_amount'] + $stats['overdue_amount'], 2) }}
+                                </div>
                             </div>
-                        </th>
-                        <th>Child</th>
-                        <th>Description</th>
-                        <th class="cursor-pointer" wire:click="sortBy('due_date')">
-                            <div class="flex items-center">
-                                Due Date
-                                @if ($sortBy['column'] === 'due_date')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th class="cursor-pointer" wire:click="sortBy('amount')">
-                            <div class="flex items-center">
-                                Amount
-                                @if ($sortBy['column'] === 'amount')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th class="cursor-pointer" wire:click="sortBy('status')">
-                            <div class="flex items-center">
-                                Status
-                                @if ($sortBy['column'] === 'status')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th class="text-right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse ($invoices as $invoice)
-                        <tr class="hover">
-                            <td>{{ $invoice->invoice_number }}</td>
-                            <td>
-                                <div class="flex items-center gap-3">
-                                    <div class="avatar">
-                                        <div class="w-10 h-10 mask mask-squircle">
-                                            @if ($invoice->student->photo)
-                                                <img src="{{ asset('storage/' . $invoice->student->photo) }}" alt="{{ $invoice->student->user?->name ?? 'Child' }}">
-                                            @else
-                                                <img src="{{ $invoice->student->user?->profile_photo_url ?? 'https://ui-avatars.com/api/?name=Child&color=7F9CF5&background=EBF4FF' }}" alt="{{ $invoice->student->user?->name ?? 'Child' }}">
-                                            @endif
-                                        </div>
-                                    </div>
-                                    <div>
-                                        {{ $invoice->student->user?->name ?? 'Unknown Child' }}
+                        </div>
+                        <div class="flex gap-2">
+                            @if($stats['overdue_invoices'] > 0)
+                                <x-button
+                                    label="Pay Overdue"
+                                    icon="o-credit-card"
+                                    link="{{ route('parent.invoices.index', ['status' => 'overdue']) }}"
+                                    class="btn-sm btn-error"
+                                />
+                            @endif
+                            @if($stats['pending_invoices'] > 0)
+                                <x-button
+                                    label="Pay Pending"
+                                    icon="o-banknotes"
+                                    link="{{ route('parent.invoices.index', ['status' => 'pending']) }}"
+                                    class="btn-sm btn-warning"
+                                />
+                            @endif
+                        </div>
+                    </div>
+                </div>
+            </x-card>
+        </div>
+    @endif
+
+    <!-- Filters Row -->
+    <div class="mb-6">
+        <x-card>
+            <div class="p-4">
+                <div class="grid grid-cols-1 gap-4 md:grid-cols-6">
+                    <div>
+                        <x-select
+                            label="Status"
+                            :options="$statusOptions"
+                            wire:model.live="statusFilter"
+                            option-value="id"
+                            option-label="name"
+                        />
+                    </div>
+
+                    <div>
+                        <x-select
+                            label="Child"
+                            :options="$childOptions"
+                            wire:model.live="childFilter"
+                            option-value="id"
+                            option-label="name"
+                        />
+                    </div>
+
+                    <div>
+                        <x-input
+                            label="From Date"
+                            wire:model.live="dateFrom"
+                            type="date"
+                        />
+                    </div>
+
+                    <div>
+                        <x-input
+                            label="To Date"
+                            wire:model.live="dateTo"
+                            type="date"
+                        />
+                    </div>
+
+                    <div>
+                        <x-select
+                            label="Per Page"
+                            :options="[
+                                ['id' => 10, 'name' => '10 per page'],
+                                ['id' => 15, 'name' => '15 per page'],
+                                ['id' => 25, 'name' => '25 per page'],
+                                ['id' => 50, 'name' => '50 per page']
+                            ]"
+                            wire:model.live="perPage"
+                            option-value="id"
+                            option-label="name"
+                        />
+                    </div>
+
+                    <div class="flex items-end">
+                        <x-button
+                            label="Clear Filters"
+                            icon="o-x-mark"
+                            wire:click="clearFilters"
+                            class="w-full btn-outline"
+                        />
+                    </div>
+                </div>
+            </div>
+        </x-card>
+    </div>
+
+    <!-- Invoices List -->
+    @if($invoices->count() > 0)
+        <div class="space-y-4">
+            @foreach($invoices as $invoice)
+                <x-card class="hover:shadow-lg transition-shadow duration-200 {{ $invoice->status === 'overdue' ? 'border-red-200' : ($invoice->status === 'pending' ? 'border-yellow-200' : '') }}">
+                    <div class="p-6">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-start space-x-4">
+                                <!-- Status Icon -->
+                                <div class="flex-shrink-0">
+                                    <div class="flex items-center justify-center w-12 h-12 rounded-full {{ str_replace('text-', 'bg-', $this->getStatusColor($invoice->status)) }} bg-opacity-20">
+                                        <x-icon name="{{ $this->getStatusIcon($invoice->status) }}" class="w-6 h-6 {{ str_replace('bg-', 'text-', explode(' ', $this->getStatusColor($invoice->status))[1]) }}" />
                                     </div>
                                 </div>
-                            </td>
-                            <td>{{ $invoice->description }}</td>
-                            <td>{{ $invoice->due_date->format('d/m/y') }}</td>
-                            <td>{{ number_format($invoice->amount, 2) }}</td>
-                            <td>
-                                <x-badge
-                                    label="{{ ucfirst($invoice->status) }}"
-                                    color="{{ match($invoice->status) {
-                                        'paid' => 'success',
-                                        'pending' => 'warning',
-                                        'overdue' => 'error',
-                                        default => 'ghost'
-                                    } }}"
-                                />
-                            </td>
-                            <td class="text-right">
-                                <div class="flex justify-end gap-2">
+
+                                <!-- Invoice Details -->
+                                <div class="flex-1">
+                                    <div class="flex items-center gap-3 mb-2">
+                                        <button
+                                            wire:click="redirectToShow({{ $invoice->id }})"
+                                            class="text-lg font-semibold text-blue-600 underline hover:text-blue-800"
+                                        >
+                                            {{ $invoice->invoice_number }}
+                                        </button>
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $this->getStatusColor($invoice->status) }}">
+                                            {{ ucfirst(str_replace('_', ' ', $invoice->status)) }}
+                                        </span>
+                                        @if($invoice->status === 'overdue')
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                                URGENT
+                                            </span>
+                                        @endif
+                                    </div>
+
+                                    <div class="grid grid-cols-1 gap-2 mb-3 md:grid-cols-4">
+                                        <div class="flex items-center text-sm text-gray-600">
+                                            <x-icon name="o-user" class="w-4 h-4 mr-2" />
+                                            {{ $invoice->student->full_name ?? 'Unknown Child' }}
+                                        </div>
+
+                                        <div class="flex items-center text-sm text-gray-600">
+                                            <x-icon name="o-calendar" class="w-4 h-4 mr-2" />
+                                            Due: {{ $this->formatDate($invoice->due_date) }}
+                                        </div>
+
+                                        @if($invoice->curriculum)
+                                            <div class="flex items-center text-sm text-gray-600">
+                                                <x-icon name="o-academic-cap" class="w-4 h-4 mr-2" />
+                                                {{ $invoice->curriculum->name }}
+                                            </div>
+                                        @endif
+
+                                        @if($invoice->academicYear)
+                                            <div class="flex items-center text-sm text-gray-600">
+                                                <x-icon name="o-book-open" class="w-4 h-4 mr-2" />
+                                                {{ $invoice->academicYear->name }}
+                                            </div>
+                                        @endif
+                                    </div>
+
+                                    @if($invoice->description)
+                                        <div class="mb-2 text-sm text-gray-600">
+                                            {{ $invoice->description }}
+                                        </div>
+                                    @endif
+
+                                    <div class="text-sm text-gray-500">
+                                        Issued: {{ $this->formatDate($invoice->invoice_date) }}
+                                        @if($invoice->paid_date)
+                                            • Paid: {{ $this->formatDate($invoice->paid_date) }}
+                                        @endif
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Amount and Actions -->
+                            <div class="text-right">
+                                <div class="text-2xl font-bold {{ $invoice->status === 'paid' ? 'text-green-600' : ($invoice->status === 'overdue' ? 'text-red-600' : 'text-gray-900') }}">
+                                    ${{ number_format($invoice->amount, 2) }}
+                                </div>
+
+                                @if($invoice->payments && $invoice->payments->count() > 0)
+                                    <div class="text-sm text-gray-500">
+                                        Paid: ${{ number_format($invoice->payments->sum('amount'), 2) }}
+                                    </div>
+                                @endif
+
+                                <div class="flex gap-2 mt-3">
                                     <x-button
-                                        icon="o-arrow-down-tray"
-                                        color="secondary"
-                                        size="sm"
-                                        tooltip="Download Invoice"
-                                        wire:click="downloadInvoice({{ $invoice->id }})"
+                                        label="View"
+                                        icon="o-eye"
+                                        wire:click="redirectToShow({{ $invoice->id }})"
+                                        class="btn-xs btn-outline"
                                     />
 
-                                    @if($invoice->status !== 'paid')
+                                    @if($this->isPayable($invoice))
                                         <x-button
+                                            label="Pay Now"
                                             icon="o-credit-card"
-                                            color="primary"
-                                            size="sm"
-                                            tooltip="Pay Now"
-                                            wire:click="payInvoice({{ $invoice->id }})"
+                                            wire:click="redirectToPay({{ $invoice->id }})"
+                                            class="btn-xs {{ $invoice->status === 'overdue' ? 'btn-error' : 'btn-primary' }}"
                                         />
                                     @endif
                                 </div>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="7" class="py-8 text-center">
-                                <div class="flex flex-col items-center justify-center gap-2">
-                                    <x-icon name="o-document-text" class="w-16 h-16 text-gray-400" />
-                                    <h3 class="text-lg font-semibold text-gray-600">No invoices found</h3>
-                                    <p class="text-gray-500">No records match your current filters for the selected time period</p>
-                                </div>
-                            </td>
-                        </tr>
-                    @endforelse
-                </tbody>
-            </table>
+                            </div>
+                        </div>
+                    </div>
+                </x-card>
+            @endforeach
         </div>
 
         <!-- Pagination -->
-        <div class="mt-4">
+        <div class="mt-6">
             {{ $invoices->links() }}
         </div>
-    </x-card>
 
-    <!-- Filters drawer -->
-    <x-drawer wire:model="showFilters" title="Advanced Filters" position="right" class="p-4">
-        <div class="flex flex-col gap-4 mb-4">
-            <div>
-                <x-input
-                    label="Search invoices"
-                    wire:model.live.debounce="search"
-                    icon="o-magnifying-glass"
-                    placeholder="Invoice number or description..."
-                    clearable
-                />
-            </div>
-
-            <div>
-                <x-select
-                    label="Filter by child"
-                    placeholder="All children"
-                    :options="$children"
-                    wire:model.live="child"
-                    option-label="name"
-                    option-value="id"
-                    empty-message="No children found"
-                />
-            </div>
-
-            <div>
-                <x-select
-                    label="Filter by status"
-                    placeholder="All statuses"
-                    :options="[
-                        ['label' => 'Paid', 'value' => 'paid'],
-                        ['label' => 'Pending', 'value' => 'pending'],
-                        ['label' => 'Overdue', 'value' => 'overdue']
-                    ]"
-                    wire:model.live="status"
-                    option-label="label"
-                    option-value="value"
-                />
-            </div>
-
-            <div>
-                <x-select
-                    label="Items per page"
-                    :options="[10, 25, 50, 100]"
-                    wire:model.live="perPage"
-                />
-            </div>
+        <!-- Results summary -->
+        <div class="mt-4 text-sm text-gray-600">
+            Showing {{ $invoices->firstItem() ?? 0 }} to {{ $invoices->lastItem() ?? 0 }}
+            of {{ $invoices->total() }} invoices
+            @if($search || $statusFilter || $childFilter || $dateFrom || $dateTo)
+                (filtered)
+            @endif
         </div>
-
-        <x-slot:actions>
-            <x-button label="Reset" icon="o-x-mark" wire:click="resetFilters" />
-            <x-button label="Apply" icon="o-check" wire:click="$set('showFilters', false)" color="primary" />
-        </x-slot:actions>
-    </x-drawer>
+    @else
+        <!-- Empty State -->
+        <x-card>
+            <div class="py-12 text-center">
+                <div class="flex flex-col items-center justify-center gap-4">
+                    <x-icon name="o-document-text" class="w-20 h-20 text-gray-300" />
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-600">No invoices found</h3>
+                        <p class="mt-1 text-gray-500">
+                            @if($search || $statusFilter || $childFilter || $dateFrom || $dateTo)
+                                No invoices match your current filters.
+                            @else
+                                Invoices will appear here once your children are enrolled in programs.
+                            @endif
+                        </p>
+                    </div>
+                    @if($search || $statusFilter || $childFilter)
+                        <x-button
+                            label="Clear Filters"
+                            wire:click="clearFilters"
+                            class="btn-secondary"
+                        />
+                    @endif
+                </div>
+            </div>
+        </x-card>
+    @endif
 </div>

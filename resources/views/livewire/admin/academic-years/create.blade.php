@@ -121,7 +121,6 @@ new #[Title('Create Academic Year')] class extends Component {
                     hint="Enter a unique name for this academic year"
                     required
                 />
-                @error('name') <x-error>{{ $message }}</x-error> @enderror
             </div>
 
             <div class="grid gap-4 md:grid-cols-2">
@@ -132,7 +131,6 @@ new #[Title('Create Academic Year')] class extends Component {
                         wire:model="start_date"
                         required
                     />
-                    @error('start_date') <x-error>{{ $message }}</x-error> @enderror
                 </div>
                 <div>
                     <x-input
@@ -141,8 +139,7 @@ new #[Title('Create Academic Year')] class extends Component {
                         wire:model="end_date"
                         required
                     />
-                    @error('end_date') <x-error>{{ $message }}</x-error> @enderror
-                </div>
+               </div>
             </div>
 
             <div>
@@ -150,9 +147,7 @@ new #[Title('Create Academic Year')] class extends Component {
                     label="Set as current academic year"
                     wire:model="is_current"
                     hint="If checked, this will be set as the current academic year and any previously set current year will be unset."
-                />
-                @error('is_current') <x-error>{{ $message }}</x-error> @enderror
-            </div>
+                />            </div>
         </div>
 
         <x-slot:actions>

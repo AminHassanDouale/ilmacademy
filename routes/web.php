@@ -36,16 +36,32 @@ Route::get('/logout', function () {
     return redirect('/');
 })->name('logout');
 
-// Public Routes
-
-
 // Auth Required Routes
 Route::middleware('auth')->group(function () {
-    // Dashboard - Role Based
-    Volt::route('/dashboard', 'dashboard.index')->name('dashboard');
+    // Main Dashboard - Role Based Redirect
+    Route::get('/dashboard', function () {
+        $user = auth()->user();
+
+        // Redirect based on user role
+        if ($user->hasRole('admin')) {
+            return redirect()->route('admin.dashboard');
+        } elseif ($user->hasRole('teacher')) {
+            return redirect()->route('teacher.dashboard');
+        } elseif ($user->hasRole('parent')) {
+            return redirect()->route('parent.dashboard');
+        } elseif ($user->hasRole('student')) {
+            return redirect()->route('student.dashboard');
+        }
+
+        // Default fallback
+        return redirect()->route('profile.edit');
+    })->name('dashboard');
 
     // Parent Routes
     Route::middleware(['role:parent'])->prefix('parent')->group(function () {
+        // Parent Dashboard
+        Volt::route('/dashboard', 'parent.dashboard')->name('parent.dashboard');
+
         Volt::route('/children', 'parent.children.index')->name('parent.children.index');
         Volt::route('/children/create', 'parent.children.create')->name('parent.children.create');
         Volt::route('/children/{childProfile}', 'parent.children.show')->name('parent.children.show');
@@ -62,10 +78,17 @@ Route::middleware('auth')->group(function () {
         Volt::route('/invoices', 'parent.invoices.index')->name('parent.invoices.index');
         Volt::route('/invoices/{invoice}', 'parent.invoices.show')->name('parent.invoices.show');
         Volt::route('/invoices/{invoice}/pay', 'parent.invoices.pay')->name('parent.invoices.pay');
+
+        // Parent-specific quick actions
+        Volt::route('/payments', 'parent.payments.index')->name('parent.payments.index');
+        Volt::route('/schedule', 'parent.schedule.index')->name('parent.schedule.index');
     });
 
     // Teacher Routes
     Route::middleware(['role:teacher'])->prefix('teacher')->group(function () {
+        // Teacher Dashboard
+        Volt::route('/dashboard', 'teacher.dashboard')->name('teacher.dashboard');
+
         Volt::route('/profile', 'teacher.profile.edit')->name('teacher.profile.edit');
 
         Volt::route('/subjects', 'teacher.subjects.index')->name('teacher.subjects.index');
@@ -86,10 +109,17 @@ Route::middleware('auth')->group(function () {
         Volt::route('/exams/{exam}/edit', 'teacher.exams.edit')->name('teacher.exams.edit');
         Volt::route('/exams/{exam}/results', 'teacher.exams.results')->name('teacher.exams.results');
         Volt::route('/exams/{exam}/results/create', 'teacher.exam-results.create')->name('teacher.exam-results.create');
+
+        // Teacher-specific quick actions
+        Volt::route('/timetable', 'teacher.timetable.index')->name('teacher.timetable.index');
+        Volt::route('/students', 'teacher.students.index')->name('teacher.students.index');
     });
 
     // Student Routes (for client profiles/adult learners)
     Route::middleware(['role:student'])->prefix('student')->group(function () {
+        // Student Dashboard
+        Volt::route('/dashboard', 'student.dashboard')->name('student.dashboard');
+
         Volt::route('/profile', 'student.profile.edit')->name('student.profile.edit');
 
         Volt::route('/enrollments', 'student.enrollments.index')->name('student.enrollments.index');
@@ -104,10 +134,18 @@ Route::middleware('auth')->group(function () {
         Volt::route('/invoices', 'student.invoices.index')->name('student.invoices.index');
         Volt::route('/invoices/{invoice}', 'student.invoices.show')->name('student.invoices.show');
         Volt::route('/invoices/{invoice}/pay', 'student.invoices.pay')->name('student.invoices.pay');
+
+        // Student-specific quick actions
+        Volt::route('/schedule', 'student.schedule.index')->name('student.schedule.index');
+        Volt::route('/grades', 'student.grades.index')->name('student.grades.index');
+        Volt::route('/attendance-history', 'student.attendance.history')->name('student.attendance.history');
     });
 
     // Admin Routes
     Route::middleware(['role:admin'])->prefix('admin')->group(function () {
+        // Admin Dashboard
+        Volt::route('/dashboard', 'admin.dashboard')->name('admin.dashboard');
+
         Volt::route('/users', 'admin.users.index')->name('admin.users.index');
         Volt::route('/users/create', 'admin.users.create')->name('admin.users.create');
         Volt::route('/users/{user}', 'admin.users.show')->name('admin.users.show');
@@ -123,7 +161,6 @@ Route::middleware('auth')->group(function () {
         Volt::route('/teachers/{teacherProfile}/edit', 'admin.teachers.edit')->name('admin.teachers.edit');
         Volt::route('/teachers/{teacherProfile}/session', 'admin.teachers.sessions')->name('admin.teachers.sessions');
         Volt::route('/teachers/{teacherProfile}/exams', 'admin.teachers.exams')->name('admin.teachers.exams');
-        //Volt::route('/teachers/{teacherProfile}/exams/results', 'admin.teachers.exams.results')->name('admin.teachers.exams');
         Volt::route('/teachers/{teacherProfile}/timetable', 'admin.teachers.timetable')->name('admin.teachers.timetable');
 
         Volt::route('/parents', 'admin.parents.index')->name('admin.parents.index');
@@ -157,26 +194,49 @@ Route::middleware('auth')->group(function () {
         Volt::route('/enrollments/{programEnrollment}', 'admin.enrollments.show')->name('admin.enrollments.show');
         Volt::route('/enrollments/{programEnrollment}/edit', 'admin.enrollments.edit')->name('admin.enrollments.edit');
 
+        Volt::route('/subject-enrollments', 'admin.subject-enrollments.index')->name('admin.subject-enrollments.index');
+        Volt::route('/subject-enrollments/create', 'admin.subject-enrollments.create')->name('admin.subject-enrollments.create');
+        Volt::route('/subject-enrollments/{subjectEnrollment}', 'admin.subject-enrollments.show')->name('admin.subject-enrollments.show');
+        Volt::route('/subject-enrollments/{subjectEnrollment}/edit', 'admin.subject-enrollments.edit')->name('admin.subject-enrollments.edit');
+
         Volt::route('/invoices', 'admin.invoices.index')->name('admin.invoices.index');
         Volt::route('/invoices/create', 'admin.invoices.create')->name('admin.invoices.create');
         Volt::route('/invoices/{invoice}', 'admin.invoices.show')->name('admin.invoices.show');
         Volt::route('/invoices/{invoice}/edit', 'admin.invoices.edit')->name('admin.invoices.edit');
+
+        Volt::route('/payments', 'admin.payments.index')->name('admin.payments.index');
+        Volt::route('/payments/create', 'admin.payments.create')->name('admin.payments.create');
+        Volt::route('/payments/{payment}', 'admin.payments.show')->name('admin.payments.show');
+        Volt::route('/payments/{payment}/edit', 'admin.payments.edit')->name('admin.payments.edit');
 
         Volt::route('/timetable', 'admin.timetable.index')->name('admin.timetable.index');
         Volt::route('/timetable/create', 'admin.timetable.create')->name('admin.timetable.create');
         Volt::route('/timetable/{timetableSlot}/edit', 'admin.timetable.edit')->name('admin.timetable.edit');
         Volt::route('/timetable/{timetableSlot}', 'admin.timetable.show')->name('admin.timetable.show');
 
+        // Admin Reports
         Volt::route('/reports/students', 'admin.reports.students')->name('admin.reports.students');
         Volt::route('/reports/attendance', 'admin.reports.attendance')->name('admin.reports.attendance');
         Volt::route('/reports/exams', 'admin.reports.exams')->name('admin.reports.exams');
         Volt::route('/reports/finances', 'admin.reports.finances')->name('admin.reports.finances');
+        Volt::route('/reports/overview', 'admin.reports.overview')->name('admin.reports.overview');
 
         Volt::route('/activity-logs', 'admin.activity-logs.index')->name('admin.activity-logs.index');
+
+        // Admin Settings & System Management
+        Volt::route('/settings', 'admin.settings.index')->name('admin.settings.index');
+        Volt::route('/system-status', 'admin.system.status')->name('admin.system.status');
+        Volt::route('/logs', 'admin.system.logs')->name('system.logs');
+        Volt::route('/backups', 'admin.system.backups')->name('system.backups');
+        Volt::route('/maintenance', 'admin.system.maintenance')->name('system.maintenance');
+        Volt::route('/updates', 'admin.system.updates')->name('system.updates');
     });
 
     // Shared Routes (available to multiple roles)
     Volt::route('/profile', 'profile.edit')->name('profile.edit');
-    Volt::route('/calendar', 'calendar.index')->name('calendar.index');
+     Volt::route('/calendar', 'calendar.index')->name('calendar.index');
+    Volt::route('/calendar/create', 'calendar.create')->name('calendar.create');
+    Volt::route('/calendar/{event}', 'calendar.show')->name('calendar.show');
+    Volt::route('/calendar/{event}/edit', 'calendar.edit')->name('calendar.edit');
     Volt::route('/notifications', 'notifications.index')->name('notifications.index');
 });

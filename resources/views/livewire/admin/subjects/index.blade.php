@@ -65,6 +65,24 @@ new #[Title('Subjects Management')] class extends Component {
         }
     }
 
+    // Redirect to create page
+    public function redirectToCreate(): void
+    {
+        $this->redirect(route('admin.subjects.create'));
+    }
+
+    // Redirect to show page
+    public function redirectToShow(int $subjectId): void
+    {
+        $this->redirect(route('admin.subjects.show', $subjectId));
+    }
+
+    // Redirect to edit page
+    public function redirectToEdit(int $subjectId): void
+    {
+        $this->redirect(route('admin.subjects.edit', $subjectId));
+    }
+
     // Confirm deletion
     public function confirmDelete(int $subjectId): void
     {
@@ -134,6 +152,9 @@ new #[Title('Subjects Management')] class extends Component {
 
                     // Show toast notification
                     $this->success("Subject {$subjectDetails['name']} has been successfully deleted.");
+
+                    // Refresh the page data after successful deletion
+                    $this->resetPage();
                 } catch (\Exception $e) {
                     DB::rollBack();
                     $this->error("An error occurred during deletion: {$e->getMessage()}");
@@ -151,7 +172,7 @@ new #[Title('Subjects Management')] class extends Component {
     public function subjects(): LengthAwarePaginator
     {
         return Subject::query()
-            ->with(['curriculum', 'sessions', 'exams']) // Eager load relationships
+            ->with(['curriculum']) // Eager load relationships
             ->withCount(['sessions', 'exams', 'subjectEnrollments'])
             ->when($this->search, function (Builder $query) {
                 $query->where('name', 'like', '%' . $this->search . '%')
@@ -206,6 +227,17 @@ new #[Title('Subjects Management')] class extends Component {
         $this->resetPage();
     }
 
+    // Helper function to get level color
+    private function getLevelColor(string $level): string
+    {
+        return match(strtolower($level)) {
+            'beginner' => 'bg-green-100 text-green-800',
+            'intermediate' => 'bg-yellow-100 text-yellow-800',
+            'advanced' => 'bg-red-100 text-red-800',
+            default => 'bg-gray-100 text-gray-600'
+        };
+    }
+
     public function with(): array
     {
         return [
@@ -238,7 +270,7 @@ new #[Title('Subjects Management')] class extends Component {
             <x-button
                 label="New Subject"
                 icon="o-plus"
-                link="{{ route('admin.subjects.create') }}"
+                wire:click="redirectToCreate"
                 class="btn-primary"
                 responsive />
         </x-slot:actions>
@@ -297,77 +329,114 @@ new #[Title('Subjects Management')] class extends Component {
                 <tbody>
                     @forelse ($subjects as $subject)
                         <tr class="hover">
-                            <td>{{ $subject->id }}</td>
+                            <td class="font-mono text-sm">#{{ $subject->id }}</td>
                             <td>
                                 <div class="font-bold">{{ $subject->name }}</div>
-                            </td>
-                            <td>
-                                <x-badge label="{{ $subject->code }}" color="info" />
-                            </td>
-                            <td>
-                                <a href="{{ route('admin.curricula.show', $subject->curriculum_id) }}" class="link link-hover">
-                                    {{ $subject->curriculum->name ?? 'Unknown curriculum' }}
-                                </a>
-                            </td>
-                            <td>
-                                <x-badge
-                                    label="{{ $subject->level }}"
-                                    color="{{ match(strtolower($subject->level ?? '')) {
-                                        'beginner' => 'success',
-                                        'intermediate' => 'warning',
-                                        'advanced' => 'error',
-                                        default => 'ghost'
-                                    } }}"
-                                />
-                            </td>
-                            <td>
-                                <div class="flex gap-2">
-                                    <div class="tooltip" data-tip="Sessions">
-                                        <x-badge label="{{ $subject->sessions_count }}" icon="o-calendar" />
+                                @if($subject->description)
+                                    <div class="max-w-xs text-sm truncate opacity-70">
+                                        {{ Str::limit($subject->description, 60) }}
                                     </div>
-                                    <div class="tooltip" data-tip="Exams">
-                                        <x-badge label="{{ $subject->exams_count }}" icon="o-clipboard-document-check" />
-                                    </div>
-                                    <div class="tooltip" data-tip="Enrollments">
-                                        <x-badge label="{{ $subject->subject_enrollments_count }}" icon="o-user-group" />
-                                    </div>
+                                @endif
+                            </td>
+                            <td class="py-2">
+                                @if(!empty($subject->code))
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 font-mono">
+                                        {{ $subject->code }}
+                                    </span>
+                                @else
+                                    <span class="text-xs italic text-gray-400">No code</span>
+                                @endif
+                            </td>
+                            <td>
+                                @if($subject->curriculum)
+                                    <a href="{{ route('admin.curricula.show', $subject->curriculum_id) }}" class="text-blue-600 underline hover:text-blue-800">
+                                        {{ $subject->curriculum->name }}
+                                    </a>
+                                    @if($subject->curriculum->code)
+                                        <div class="text-xs text-gray-500">{{ $subject->curriculum->code }}</div>
+                                    @endif
+                                @else
+                                    <span class="italic text-gray-400">Unknown curriculum</span>
+                                @endif
+                            </td>
+                            <td class="py-2">
+                                @if(!empty($subject->level))
+                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium {{ $this->getLevelColor($subject->level) }}">
+                                        {{ $subject->level }}
+                                    </span>
+                                @else
+                                    <span class="text-xs italic text-gray-400">No level</span>
+                                @endif
+                            </td>
+                            <td>
+                                <div class="flex gap-1">
+                                    <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-indigo-800 bg-indigo-100 rounded-full" title="Sessions">
+                                        📅 {{ $subject->sessions_count ?? 0 }}
+                                    </span>
+                                    <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-orange-800 bg-orange-100 rounded-full" title="Exams">
+                                        📝 {{ $subject->exams_count ?? 0 }}
+                                    </span>
+                                    <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-purple-800 bg-purple-100 rounded-full" title="Enrollments">
+                                        👥 {{ $subject->subject_enrollments_count ?? 0 }}
+                                    </span>
                                 </div>
                             </td>
                             <td class="text-right">
                                 <div class="flex justify-end gap-2">
-                                    <x-button
-                                        icon="o-eye"
-                                        link="{{ route('admin.subjects.show', $subject->id) }}"
-                                        color="secondary"
-                                        size="sm"
-                                        tooltip="View"
-                                    />
-
-                                    <x-button
-                                        icon="o-pencil"
-                                        link="{{ route('admin.subjects.edit', $subject->id) }}"
-                                        color="info"
-                                        size="sm"
-                                        tooltip="Edit"
-                                    />
-
-                                    <x-button
-                                        icon="o-trash"
+                                    <button
+                                        wire:click="redirectToShow({{ $subject->id }})"
+                                        class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
+                                        title="View"
+                                    >
+                                        👁️
+                                    </button>
+                                    <button
+                                        wire:click="redirectToEdit({{ $subject->id }})"
+                                        class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
+                                        title="Edit"
+                                    >
+                                        ✏️
+                                    </button>
+                                    <button
                                         wire:click="confirmDelete({{ $subject->id }})"
-                                        color="error"
-                                        size="sm"
-                                        tooltip="Delete"
-                                    />
+                                        class="p-2 text-red-600 bg-red-100 rounded-md hover:text-red-900 hover:bg-red-200"
+                                        title="Delete"
+                                    >
+                                        🗑️
+                                    </button>
                                 </div>
                             </td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" class="py-8 text-center">
-                                <div class="flex flex-col items-center justify-center gap-2">
-                                    <x-icon name="o-face-frown" class="w-16 h-16 text-gray-400" />
-                                    <h3 class="text-lg font-semibold text-gray-600">No subjects found</h3>
-                                    <p class="text-gray-500">Try modifying your filters or create a new subject</p>
+                            <td colspan="7" class="py-12 text-center">
+                                <div class="flex flex-col items-center justify-center gap-4">
+                                    <x-icon name="o-academic-cap" class="w-20 h-20 text-gray-300" />
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-600">No subjects found</h3>
+                                        <p class="mt-1 text-gray-500">
+                                            @if($search || $curriculum || $level)
+                                                No subjects match your current filters.
+                                            @else
+                                                Get started by creating your first subject.
+                                            @endif
+                                        </p>
+                                    </div>
+                                    @if($search || $curriculum || $level)
+                                        <x-button
+                                            label="Clear Filters"
+                                            wire:click="resetFilters"
+                                            color="secondary"
+                                            size="sm"
+                                        />
+                                    @else
+                                        <x-button
+                                            label="Create First Subject"
+                                            icon="o-plus"
+                                            wire:click="redirectToCreate"
+                                            color="primary"
+                                        />
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -380,6 +449,17 @@ new #[Title('Subjects Management')] class extends Component {
         <div class="mt-4">
             {{ $subjects->links() }}
         </div>
+
+        <!-- Results summary -->
+        @if($subjects->count() > 0)
+        <div class="pt-3 mt-4 text-sm text-gray-600 border-t">
+            Showing {{ $subjects->firstItem() ?? 0 }} to {{ $subjects->lastItem() ?? 0 }}
+            of {{ $subjects->total() }} subjects
+            @if($search || $curriculum || $level)
+                (filtered from total)
+            @endif
+        </div>
+        @endif
     </x-card>
 
     <!-- Delete confirmation modal -->
@@ -440,7 +520,14 @@ new #[Title('Subjects Management')] class extends Component {
             <div>
                 <x-select
                     label="Items per page"
-                    :options="[10, 25, 50, 100]"
+                    :options="[
+                        ['id' => 10, 'name' => '10 per page'],
+                        ['id' => 25, 'name' => '25 per page'],
+                        ['id' => 50, 'name' => '50 per page'],
+                        ['id' => 100, 'name' => '100 per page']
+                    ]"
+                    option-value="id"
+                    option-label="name"
                     wire:model.live="perPage"
                 />
             </div>

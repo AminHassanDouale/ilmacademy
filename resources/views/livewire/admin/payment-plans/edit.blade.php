@@ -15,50 +15,97 @@ new #[Title('Edit Payment Plan')] class extends Component {
 
     public PaymentPlan $paymentPlan;
 
-    #[Rule('required|string|max:50')]
+    #[Rule('required|string|max:255')]
+    public string $name = '';
+
+    #[Rule('required|string|in:monthly,quarterly,semi-annual,annual,one-time')]
     public string $type = '';
 
     #[Rule('required|numeric|min:0')]
     public string $amount = '';
 
-    #[Rule('nullable|integer|min:1|max:31')]
-    public ?int $due_day = null;
+    #[Rule('required|string|max:3')]
+    public string $currency = 'USD';
+
+    #[Rule('nullable|string|max:1000')]
+    public ?string $description = null;
 
     #[Rule('required|exists:curricula,id')]
     public string $curriculum_id = '';
 
-    // Predefined payment plan types
-    public array $planTypes = [
-        'Monthly',
-        'Quarterly',
-        'Annual',
-        'One-Time'
+    #[Rule('boolean')]
+    public bool $is_active = true;
+
+    #[Rule('nullable|integer|min:1|max:12')]
+    public ?int $installments = null;
+
+    #[Rule('nullable|string|in:monthly,quarterly,semi-annual,annual,one-time')]
+    public ?string $frequency = null;
+
+    // Available currencies
+    public array $currencies = [
+        'USD' => 'USD ($)',
+        'EUR' => 'EUR (€)',
+        'GBP' => 'GBP (£)',
     ];
 
     // Initialize component
     public function mount(PaymentPlan $paymentPlan): void
     {
         $this->paymentPlan = $paymentPlan;
+        $this->name = $paymentPlan->name ?? '';
         $this->type = $paymentPlan->type;
-        $this->amount = $paymentPlan->amount;
-        $this->due_day = $paymentPlan->due_day;
-        $this->curriculum_id = $paymentPlan->curriculum_id;
+        $this->amount = (string) $paymentPlan->amount;
+        $this->currency = $paymentPlan->currency ?? 'USD';
+        $this->description = $paymentPlan->description;
+        $this->curriculum_id = (string) $paymentPlan->curriculum_id;
+        $this->is_active = $paymentPlan->is_active ?? true;
+        $this->installments = $paymentPlan->installments;
+        $this->frequency = $paymentPlan->frequency ?? $paymentPlan->type;
 
         // Log activity
         ActivityLog::log(
             Auth::id(),
             'access',
-            "Accessed edit payment plan page for {$paymentPlan->type}",
+            "Accessed edit payment plan page for {$paymentPlan->name}",
             PaymentPlan::class,
             $paymentPlan->id,
             ['ip' => request()->ip()]
         );
     }
 
+    // Get payment plan types from the model
+    public function getPaymentTypesProperty(): array
+    {
+        return [
+            ['value' => 'monthly', 'label' => 'Monthly'],
+            ['value' => 'quarterly', 'label' => 'Quarterly'],
+            ['value' => 'semi-annual', 'label' => 'Semi-Annual'],
+            ['value' => 'annual', 'label' => 'Annual'],
+            ['value' => 'one-time', 'label' => 'One-Time'],
+        ];
+    }
+
     // Get curricula for dropdown
-    public function curricula()
+    public function getCurriculaProperty()
     {
         return Curriculum::orderBy('name')->get();
+    }
+
+    // Update frequency when type changes
+    public function updatedType(): void
+    {
+        $this->frequency = $this->type;
+
+        // Set default installments based on type
+        $this->installments = match($this->type) {
+            'monthly' => 12,
+            'quarterly' => 4,
+            'semi-annual' => 2,
+            'annual' => 1,
+            'one-time' => 1,
+            default => null
+        };
     }
 
     // Save the payment plan updates
@@ -71,21 +118,31 @@ new #[Title('Edit Payment Plan')] class extends Component {
 
             // Track old values for logging
             $oldValues = [
+                'name' => $this->paymentPlan->name,
                 'type' => $this->paymentPlan->type,
                 'amount' => $this->paymentPlan->amount,
-                'due_day' => $this->paymentPlan->due_day,
-                'curriculum_id' => $this->paymentPlan->curriculum_id
+                'currency' => $this->paymentPlan->currency,
+                'description' => $this->paymentPlan->description,
+                'curriculum_id' => $this->paymentPlan->curriculum_id,
+                'is_active' => $this->paymentPlan->is_active,
+                'installments' => $this->paymentPlan->installments,
+                'frequency' => $this->paymentPlan->frequency,
             ];
 
             // Update payment plan
             $this->paymentPlan->update([
+                'name' => $this->name,
                 'type' => $this->type,
                 'amount' => $this->amount,
-                'due_day' => $this->due_day,
+                'currency' => $this->currency,
+                'description' => $this->description,
                 'curriculum_id' => $this->curriculum_id,
+                'is_active' => $this->is_active,
+                'installments' => $this->installments,
+                'frequency' => $this->frequency,
             ]);
 
-            // Get curriculum name for logging
+            // Get curriculum names for logging
             $curriculumName = Curriculum::find($this->curriculum_id)->name ?? 'Unknown curriculum';
             $oldCurriculumName = Curriculum::find($oldValues['curriculum_id'])->name ?? 'Unknown curriculum';
 
@@ -114,10 +171,11 @@ new #[Title('Edit Payment Plan')] class extends Component {
                 ActivityLog::log(
                     Auth::id(),
                     'update',
-                    "Updated payment plan: {$this->type}",
+                    "Updated payment plan: {$this->name}",
                     PaymentPlan::class,
                     $this->paymentPlan->id,
                     [
+                        'payment_plan_name' => $this->name,
                         'payment_plan_type' => $this->type,
                         'changes' => $changes,
                         'curriculum_name' => $curriculumName
@@ -128,7 +186,7 @@ new #[Title('Edit Payment Plan')] class extends Component {
             DB::commit();
 
             // Success message and redirect
-            $this->success("Payment plan '{$this->type}' has been updated successfully.");
+            $this->success("Payment plan '{$this->name}' has been updated successfully.");
             $this->redirect(route('admin.payment-plans.index'));
         } catch (\Exception $e) {
             DB::rollBack();
@@ -145,7 +203,7 @@ new #[Title('Edit Payment Plan')] class extends Component {
 
 <div>
     <!-- Page header -->
-    <x-header title="Edit Payment Plan: {{ $paymentPlan->type }}" separator>
+    <x-header title="Edit Payment Plan: {{ $paymentPlan->name ?? $paymentPlan->type }}" separator>
         <x-slot:actions>
             <x-button
                 label="Back to Payment Plans"
@@ -157,63 +215,139 @@ new #[Title('Edit Payment Plan')] class extends Component {
     </x-header>
 
     <!-- Form Card -->
-    <x-card class="max-w-2xl mx-auto">
-        <div class="p-4 space-y-6">
-            <div>
-                <x-select
-                    label="Curriculum"
-                    placeholder="Select a curriculum"
-                    :options="$this->curricula()"
-                    wire:model="curriculum_id"
-                    option-label="name"
-                    option-value="id"
-                    required
-                    hint="Select the curriculum this payment plan applies to"
-                />
-                @error('curriculum_id') <x-error>{{ $message }}</x-error> @enderror
+    <x-card class="max-w-4xl mx-auto">
+        <div class="p-6 space-y-6">
+            <!-- Basic Information -->
+            <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                <div>
+                    <x-input
+                        label="Plan Name"
+                        wire:model="name"
+                        placeholder="e.g., Standard Monthly Plan"
+                        hint="Enter a descriptive name for this payment plan"
+                        required
+                    />
+                </div>
+
+                <div>
+                    <x-select
+                        label="Curriculum"
+                        placeholder="Select a curriculum"
+                        :options="$this->curricula"
+                        wire:model="curriculum_id"
+                        option-label="name"
+                        option-value="id"
+                        required
+                        hint="Select the curriculum this payment plan applies to"
+                    />
+                </div>
             </div>
 
-            <div>
-                <x-select
-                    label="Payment Plan Type"
-                    placeholder="Select a payment plan type"
-                    :options="$planTypes"
-                    wire:model="type"
-                    required
-                    hint="Select the type of payment schedule"
-                />
-                @error('type') <x-error>{{ $message }}</x-error> @enderror
+            <!-- Payment Details -->
+            <div class="grid grid-cols-1 gap-6 md:grid-cols-3">
+                <div>
+                    <x-select
+                        label="Payment Type"
+                        placeholder="Select payment type"
+                        :options="$this->paymentTypes"
+                        wire:model.live="type"
+                        option-label="label"
+                        option-value="value"
+                        required
+                        hint="Select the frequency of payments"
+                    />
+                </div>
+
+                <div>
+                    <x-input
+                        label="Amount"
+                        wire:model="amount"
+                        placeholder="0.00"
+                        hint="Enter the payment amount per installment"
+                        required
+                    />
+                </div>
+
+                <div>
+                    <x-select
+                        label="Currency"
+                        :options="$currencies"
+                        wire:model="currency"
+                        required
+                        hint="Select the currency"
+                    />
+                </div>
             </div>
 
-            <div>
-                <x-input
-                    label="Amount"
-                    wire:model="amount"
-                    placeholder="0.00"
-                    prefix="$"
-                    hint="Enter the payment amount"
-                    required
-                />
-                @error('amount') <x-error>{{ $message }}</x-error> @enderror
+            <!-- Advanced Settings -->
+            <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                <div>
+                    <x-input
+                        type="number"
+                        label="Number of Installments"
+                        wire:model="installments"
+                        min="1"
+                        max="12"
+                        placeholder="e.g., 12"
+                        hint="Total number of payments (automatically set based on type)"
+                    />
+                </div>
+
+                <div class="flex items-center space-x-4">
+                    <x-checkbox
+                        label="Active Plan"
+                        wire:model="is_active"
+                        hint="Uncheck to disable this payment plan"
+                    />
+                </div>
             </div>
 
+            <!-- Description -->
             <div>
-                <x-input
-                    type="number"
-                    label="Due Day of Month"
-                    wire:model="due_day"
-                    min="1"
-                    max="31"
-                    placeholder="e.g., 15"
-                    hint="Day of the month when payment is due (optional, leave empty for one-time payments)"
+                <x-textarea
+                    label="Description"
+                    wire:model="description"
+                    placeholder="Optional description of this payment plan..."
+                    hint="Provide additional details about this payment plan"
+                    rows="3"
                 />
-                @error('due_day') <x-error>{{ $message }}</x-error> @enderror
             </div>
+
+            <!-- Payment Summary -->
+            @if($amount && $installments)
+                <div class="p-4 border rounded-lg bg-gray-50">
+                    <h4 class="mb-2 font-medium text-gray-900">Payment Summary</h4>
+                    <div class="grid grid-cols-1 gap-4 text-sm md:grid-cols-3">
+                        <div>
+                            <span class="text-gray-600">Per Payment:</span>
+                            <span class="ml-2 font-medium">
+                                {{ $currency === 'USD' ? '$' : ($currency === 'EUR' ? '€' : '£') }}{{ number_format((float)$amount, 2) }}
+                            </span>
+                        </div>
+                        <div>
+                            <span class="text-gray-600">Total Payments:</span>
+                            <span class="ml-2 font-medium">{{ $installments ?? 1 }}</span>
+                        </div>
+                        <div>
+                            <span class="text-gray-600">Total Amount:</span>
+                            <span class="ml-2 font-medium text-blue-600">
+                                {{ $currency === 'USD' ? '$' : ($currency === 'EUR' ? '€' : '£') }}{{ number_format((float)$amount * ($installments ?? 1), 2) }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            @endif
         </div>
 
         <x-slot:actions>
             <x-button label="Cancel" wire:click="cancel" />
-            <x-button label="Update Payment Plan" icon="o-check" wire:click="save" class="btn-primary" spinner="save" />
+            <x-button
+                label="Update Payment Plan"
+                icon="o-check"
+                wire:click="save"
+                class="btn-primary"
+                spinner="save"
+            />
         </x-slot:actions>
     </x-card>
 </div>

@@ -1,7 +1,8 @@
 <?php
 
+use App\Models\SubjectEnrollment;
 use App\Models\Subject;
-use App\Models\Curriculum;
+use App\Models\AcademicYear;
 use App\Models\ActivityLog;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -14,7 +15,7 @@ use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Mary\Traits\Toast;
 
-new #[Title('Subjects Management')] class extends Component {
+new #[Title('Subject Enrollments Management')] class extends Component {
     use WithPagination;
     use Toast;
 
@@ -23,10 +24,13 @@ new #[Title('Subjects Management')] class extends Component {
     public string $search = '';
 
     #[Url]
-    public string $curriculum = '';
+    public string $subject = '';
 
     #[Url]
-    public string $level = '';
+    public string $academicYear = '';
+
+    #[Url]
+    public string $status = '';
 
     #[Url]
     public int $perPage = 10;
@@ -39,7 +43,7 @@ new #[Title('Subjects Management')] class extends Component {
 
     // Modal state
     public bool $showDeleteModal = false;
-    public ?int $subjectToDelete = null;
+    public ?int $enrollmentToDelete = null;
 
     public function mount(): void
     {
@@ -47,8 +51,8 @@ new #[Title('Subjects Management')] class extends Component {
         ActivityLog::log(
             Auth::id(),
             'access',
-            'Accessed subjects management page',
-            Subject::class,
+            'Accessed subject enrollments management page',
+            SubjectEnrollment::class,
             null,
             ['ip' => request()->ip()]
         );
@@ -65,169 +69,180 @@ new #[Title('Subjects Management')] class extends Component {
         }
     }
 
-    // Confirm deletion
-    public function confirmDelete(int $subjectId): void
+    // Redirect to create page
+    public function redirectToCreate(): void
     {
-        $this->subjectToDelete = $subjectId;
+        $this->redirect(route('admin.subject-enrollments.create'));
+    }
+
+    // Redirect to show page
+    public function redirectToShow(int $enrollmentId): void
+    {
+        $this->redirect(route('admin.subject-enrollments.show', $enrollmentId));
+    }
+
+    // Redirect to edit page
+    public function redirectToEdit(int $enrollmentId): void
+    {
+        $this->redirect(route('admin.subject-enrollments.edit', $enrollmentId));
+    }
+
+    // Confirm deletion
+    public function confirmDelete(int $enrollmentId): void
+    {
+        $this->enrollmentToDelete = $enrollmentId;
         $this->showDeleteModal = true;
     }
 
     // Cancel deletion
     public function cancelDelete(): void
     {
-        $this->subjectToDelete = null;
+        $this->enrollmentToDelete = null;
         $this->showDeleteModal = false;
     }
 
-    // Delete a subject
-    public function deleteSubject(): void
+    // Delete an enrollment
+    public function deleteEnrollment(): void
     {
-        if ($this->subjectToDelete) {
-            $subject = Subject::find($this->subjectToDelete);
+        if ($this->enrollmentToDelete) {
+            $enrollment = SubjectEnrollment::find($this->enrollmentToDelete);
 
-            if ($subject) {
-                // Get curriculum name safely
-                $curriculumName = 'Unknown';
-                if ($subject->curriculum) {
-                    $curriculumName = $subject->curriculum->name;
-                }
-
+            if ($enrollment) {
                 // Get data for logging before deletion
-                $subjectDetails = [
-                    'id' => $subject->id,
-                    'name' => $subject->name,
-                    'code' => $subject->code,
-                    'curriculum_name' => $curriculumName,
-                    'curriculum_id' => $subject->curriculum_id
+                $enrollmentDetails = [
+                    'id' => $enrollment->id,
+                    'student_name' => $enrollment->programEnrollment->childProfile->full_name ?? 'Unknown',
+                    'subject_name' => $enrollment->subject->name ?? 'Unknown',
+                    'subject_code' => $enrollment->subject->code ?? 'Unknown',
+                    'academic_year' => $enrollment->programEnrollment->academicYear->name ?? 'Unknown'
                 ];
 
                 try {
                     DB::beginTransaction();
 
-                    // Check if subject has related records
-                    $hasSessions = $subject->sessions()->exists();
-                    $hasExams = $subject->exams()->exists();
-                    $hasTimetableSlots = $subject->timetableSlots()->exists();
-                    $hasEnrollments = $subject->subjectEnrollments()->exists();
-
-                    if ($hasSessions || $hasExams || $hasTimetableSlots || $hasEnrollments) {
-                        $this->error("Cannot delete subject. It has associated sessions, exams, timetable slots, or enrollments.");
-                        DB::rollBack();
-                        $this->showDeleteModal = false;
-                        $this->subjectToDelete = null;
-                        return;
-                    }
-
-                    // Delete subject
-                    $subject->delete();
+                    // Delete enrollment
+                    $enrollment->delete();
 
                     // Log the action
                     ActivityLog::log(
                         Auth::id(),
                         'delete',
-                        "Deleted subject: {$subjectDetails['name']} ({$subjectDetails['code']})",
-                        Subject::class,
-                        $this->subjectToDelete,
+                        "Deleted enrollment: {$enrollmentDetails['student_name']} from {$enrollmentDetails['subject_name']}",
+                        SubjectEnrollment::class,
+                        $this->enrollmentToDelete,
                         [
-                            'subject_name' => $subjectDetails['name'],
-                            'subject_code' => $subjectDetails['code'],
-                            'curriculum_name' => $subjectDetails['curriculum_name'],
-                            'curriculum_id' => $subjectDetails['curriculum_id']
+                            'student_name' => $enrollmentDetails['student_name'],
+                            'subject_name' => $enrollmentDetails['subject_name'],
+                            'subject_code' => $enrollmentDetails['subject_code'],
+                            'academic_year' => $enrollmentDetails['academic_year']
                         ]
                     );
 
                     DB::commit();
 
                     // Show toast notification
-                    $this->success("Subject {$subjectDetails['name']} has been successfully deleted.");
+                    $this->success("Enrollment for {$enrollmentDetails['student_name']} has been successfully deleted.");
+
+                    // Refresh the page data after successful deletion
+                    $this->resetPage();
                 } catch (\Exception $e) {
                     DB::rollBack();
                     $this->error("An error occurred during deletion: {$e->getMessage()}");
                 }
             } else {
-                $this->error("Subject not found!");
+                $this->error("Enrollment not found!");
             }
         }
 
         $this->showDeleteModal = false;
-        $this->subjectToDelete = null;
+        $this->enrollmentToDelete = null;
     }
 
-    // Get filtered and paginated subjects
-    public function subjects(): LengthAwarePaginator
+    // Get filtered and paginated enrollments
+    public function enrollments(): LengthAwarePaginator
     {
-        return Subject::query()
-            ->with(['curriculum', 'sessions', 'exams']) // Eager load relationships
-            ->withCount(['sessions', 'exams', 'subjectEnrollments'])
+        return SubjectEnrollment::query()
+            ->with(['programEnrollment.childProfile', 'subject.curriculum', 'programEnrollment.academicYear'])
             ->when($this->search, function (Builder $query) {
-                $query->where('name', 'like', '%' . $this->search . '%')
-                    ->orWhere('code', 'like', '%' . $this->search . '%')
-                    ->orWhereHas('curriculum', function (Builder $q) {
-                        $q->where('name', 'like', '%' . $this->search . '%')
-                            ->orWhere('code', 'like', '%' . $this->search . '%');
-                    });
+                $query->whereHas('programEnrollment.childProfile', function (Builder $q) {
+                    $q->where('first_name', 'like', '%' . $this->search . '%')
+                      ->orWhere('last_name', 'like', '%' . $this->search . '%')
+                      ->orWhere('email', 'like', '%' . $this->search . '%');
+                })
+                ->orWhereHas('subject', function (Builder $q) {
+                    $q->where('name', 'like', '%' . $this->search . '%')
+                      ->orWhere('code', 'like', '%' . $this->search . '%');
+                });
             })
-            ->when($this->curriculum, function (Builder $query) {
-                $query->where('curriculum_id', $this->curriculum);
+            ->when($this->subject, function (Builder $query) {
+                $query->where('subject_id', $this->subject);
             })
-            ->when($this->level, function (Builder $query) {
-                $query->where('level', $this->level);
+            ->when($this->academicYear, function (Builder $query) {
+                $query->whereHas('programEnrollment.academicYear', function (Builder $q) {
+                    $q->where('id', $this->academicYear);
+                });
             })
-            ->when($this->sortBy['column'] === 'curriculum', function (Builder $query) {
-                $query->join('curricula', 'subjects.curriculum_id', '=', 'curricula.id')
-                    ->orderBy('curricula.name', $this->sortBy['direction'])
-                    ->select('subjects.*');
+            ->when($this->sortBy['column'] === 'student', function (Builder $query) {
+                $query->join('program_enrollments', 'subject_enrollments.program_enrollment_id', '=', 'program_enrollments.id')
+                    ->join('child_profiles', 'program_enrollments.child_profile_id', '=', 'child_profiles.id')
+                    ->orderBy('child_profiles.first_name', $this->sortBy['direction'])
+                    ->select('subject_enrollments.*');
+            })
+            ->when($this->sortBy['column'] === 'subject', function (Builder $query) {
+                $query->join('subjects', 'subject_enrollments.subject_id', '=', 'subjects.id')
+                    ->orderBy('subjects.name', $this->sortBy['direction'])
+                    ->select('subject_enrollments.*');
             }, function (Builder $query) {
-                $query->orderBy($this->sortBy['column'], $this->sortBy['direction']);
+                if (!in_array($this->sortBy['column'], ['student', 'subject'])) {
+                    $query->orderBy($this->sortBy['column'], $this->sortBy['direction']);
+                }
             })
             ->paginate($this->perPage);
     }
 
-    // Get curricula for filter
-    public function curricula(): Collection
+    // Get subjects for filter
+    public function subjects(): Collection
     {
-        return Curriculum::query()
+        return Subject::query()
+            ->with('curriculum')
             ->orderBy('name')
             ->get();
     }
 
-    // Get unique levels for filter
-    public function levels(): array
+    // Get academic years for filter
+    public function academicYears(): Collection
     {
-        return Subject::query()
-            ->select('level')
-            ->distinct()
-            ->orderBy('level')
-            ->pluck('level')
-            ->filter()
-            ->toArray();
+        return AcademicYear::query()
+            ->orderBy('start_date', 'desc')
+            ->get();
     }
 
     // Reset filters
     public function resetFilters(): void
     {
         $this->search = '';
-        $this->curriculum = '';
-        $this->level = '';
+        $this->subject = '';
+        $this->academicYear = '';
+        $this->status = '';
         $this->resetPage();
     }
 
     public function with(): array
     {
         return [
+            'enrollments' => $this->enrollments(),
             'subjects' => $this->subjects(),
-            'curricula' => $this->curricula(),
-            'levels' => $this->levels(),
+            'academicYears' => $this->academicYears(),
         ];
     }
 };?>
 
 <div>
     <!-- Page header -->
-    <x-header title="Subjects Management" separator progress-indicator>
+    <x-header title="Subject Enrollments Management" separator progress-indicator>
         <!-- SEARCH -->
         <x-slot:middle class="!justify-end">
-            <x-input placeholder="Search by name or code..." wire:model.live.debounce="search" icon="o-magnifying-glass" clearable />
+            <x-input placeholder="Search by student or subject..." wire:model.live.debounce="search" icon="o-magnifying-glass" clearable />
         </x-slot:middle>
 
         <!-- ACTIONS -->
@@ -235,22 +250,22 @@ new #[Title('Subjects Management')] class extends Component {
             <x-button
                 label="Filters"
                 icon="o-funnel"
-                :badge="count(array_filter([$curriculum, $level]))"
+                :badge="count(array_filter([$subject, $academicYear, $status]))"
                 badge-classes="font-mono"
                 @click="$wire.showFilters = true"
                 class="bg-base-300"
                 responsive />
 
             <x-button
-                label="New Subject"
+                label="New Enrollment"
                 icon="o-plus"
-                link="{{ route('admin.subjects.create') }}"
+                wire:click="redirectToCreate"
                 class="btn-primary"
                 responsive />
         </x-slot:actions>
     </x-header>
 
-    <!-- Subjects table -->
+    <!-- Enrollments table -->
     <x-card>
         <div class="overflow-x-auto">
             <table class="table w-full table-zebra">
@@ -264,116 +279,153 @@ new #[Title('Subjects Management')] class extends Component {
                                 @endif
                             </div>
                         </th>
-                        <th class="cursor-pointer" wire:click="sortBy('name')">
+                        <th class="cursor-pointer" wire:click="sortBy('student')">
                             <div class="flex items-center">
-                                Name
-                                @if ($sortBy['column'] === 'name')
+                                Student
+                                @if ($sortBy['column'] === 'student')
                                     <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
                                 @endif
                             </div>
                         </th>
-                        <th class="cursor-pointer" wire:click="sortBy('code')">
+                        <th class="cursor-pointer" wire:click="sortBy('subject')">
                             <div class="flex items-center">
-                                Code
-                                @if ($sortBy['column'] === 'code')
+                                Subject
+                                @if ($sortBy['column'] === 'subject')
                                     <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
                                 @endif
                             </div>
                         </th>
-                        <th class="cursor-pointer" wire:click="sortBy('curriculum')">
+                        <th>Curriculum</th>
+                        <th>Academic Year</th>
+                        <th class="cursor-pointer" wire:click="sortBy('created_at')">
                             <div class="flex items-center">
-                                Curriculum
-                                @if ($sortBy['column'] === 'curriculum')
+                                Enrolled Date
+                                @if ($sortBy['column'] === 'created_at')
                                     <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
                                 @endif
                             </div>
                         </th>
-                        <th class="cursor-pointer" wire:click="sortBy('level')">
-                            <div class="flex items-center">
-                                Level
-                                @if ($sortBy['column'] === 'level')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th>Stats</th>
                         <th class="text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @forelse ($subjects as $subject)
+                    @forelse ($enrollments as $enrollment)
                         <tr class="hover">
-                            <td>{{ $subject->id }}</td>
+                            <td class="font-mono text-sm">#{{ $enrollment->id }}</td>
                             <td>
-                                <div class="font-bold">{{ $subject->name }}</div>
-                            </td>
-                            <td>
-                                <x-badge label="{{ $subject->code }}" color="info" />
-                            </td>
-                            <td>
-                                <a href="{{ route('admin.curricula.show', $subject->curriculum_id) }}" class="link link-hover">
-                                    {{ $subject->curriculum->name ?: 'Unknown curriculum' }}
-                                </a>
-                            </td>
-                            <td>
-                                <x-badge
-                                    label="{{ $subject->level }}"
-                                    color="{{ match(strtolower($subject->level ?: '')) {
-                                        'beginner' => 'success',
-                                        'intermediate' => 'warning',
-                                        'advanced' => 'error',
-                                        default => 'ghost'
-                                    } }}"
-                                />
-                            </td>
-                            <td>
-                                <div class="flex gap-2">
-                                    <div class="tooltip" data-tip="Sessions">
-                                        <x-badge label="{{ $subject->sessions_count }}" icon="o-calendar" />
+                                <div class="flex items-center space-x-3">
+                                    <div class="avatar">
+                                        <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                                            <span class="text-blue-600 font-medium text-sm">
+                                                {{ $enrollment->programEnrollment->childProfile->initials ?? 'U' }}
+                                            </span>
+                                        </div>
                                     </div>
-                                    <div class="tooltip" data-tip="Exams">
-                                        <x-badge label="{{ $subject->exams_count }}" icon="o-clipboard-document-check" />
-                                    </div>
-                                    <div class="tooltip" data-tip="Enrollments">
-                                        <x-badge label="{{ $subject->subject_enrollments_count }}" icon="o-user-group" />
+                                    <div>
+                                        <div class="font-medium">{{ $enrollment->programEnrollment->childProfile->full_name ?? 'Unknown Student' }}</div>
+                                        <div class="text-sm text-gray-500">{{ $enrollment->programEnrollment->childProfile->email ?? 'No email' }}</div>
                                     </div>
                                 </div>
                             </td>
+                            <td>
+                                <div class="font-medium">{{ $enrollment->subject->name ?? 'Unknown Subject' }}</div>
+                                @if($enrollment->subject?->code)
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 font-mono">
+                                        {{ $enrollment->subject->code }}
+                                    </span>
+                                @endif
+                                @if($enrollment->subject?->level)
+                                    <div class="text-xs text-gray-500 mt-1">Level: {{ $enrollment->subject->level }}</div>
+                                @endif
+                            </td>
+                            <td>
+                                @if($enrollment->subject?->curriculum)
+                                    <a href="{{ route('admin.curricula.show', $enrollment->subject->curriculum->id) }}" class="text-blue-600 hover:text-blue-800 underline text-sm">
+                                        {{ $enrollment->subject->curriculum->name }}
+                                    </a>
+                                    @if($enrollment->subject->curriculum->code)
+                                        <div class="text-xs text-gray-500">{{ $enrollment->subject->curriculum->code }}</div>
+                                    @endif
+                                @else
+                                    <span class="text-gray-400 italic text-sm">No curriculum</span>
+                                @endif
+                            </td>
+                            <td>
+                                @if($enrollment->programEnrollment?->academicYear)
+                                    <div class="font-medium">{{ $enrollment->programEnrollment->academicYear->name }}</div>
+                                    <div class="text-xs text-gray-500">
+                                        {{ $enrollment->programEnrollment->academicYear->start_date->format('Y') }} -
+                                        {{ $enrollment->programEnrollment->academicYear->end_date->format('Y') }}
+                                    </div>
+                                    @if($enrollment->programEnrollment->academicYear->is_current)
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mt-1">
+                                            Current
+                                        </span>
+                                    @endif
+                                @else
+                                    <span class="text-gray-400 italic text-sm">No academic year</span>
+                                @endif
+                            </td>
+                            <td>
+                                <div class="font-medium">{{ $enrollment->created_at->format('M d, Y') }}</div>
+                                <div class="text-xs text-gray-500">{{ $enrollment->created_at->format('h:i A') }}</div>
+                            </td>
                             <td class="text-right">
                                 <div class="flex justify-end gap-2">
-                                    <x-button
-                                        icon="o-eye"
-                                        link="{{ route('admin.subjects.show', $subject->id) }}"
-                                        color="secondary"
-                                        size="sm"
-                                        tooltip="View"
-                                    />
-
-                                    <x-button
-                                        icon="o-pencil"
-                                        link="{{ route('admin.subjects.edit', $subject->id) }}"
-                                        color="info"
-                                        size="sm"
-                                        tooltip="Edit"
-                                    />
-
-                                    <x-button
-                                        icon="o-trash"
-                                        wire:click="confirmDelete({{ $subject->id }})"
-                                        color="error"
-                                        size="sm"
-                                        tooltip="Delete"
-                                    />
+                                    <button
+                                        wire:click="redirectToShow({{ $enrollment->id }})"
+                                        class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
+                                        title="View"
+                                    >
+                                        👁️
+                                    </button>
+                                    <button
+                                        wire:click="redirectToEdit({{ $enrollment->id }})"
+                                        class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
+                                        title="Edit"
+                                    >
+                                        ✏️
+                                    </button>
+                                    <button
+                                        wire:click="confirmDelete({{ $enrollment->id }})"
+                                        class="p-2 text-red-600 bg-red-100 rounded-md hover:text-red-900 hover:bg-red-200"
+                                        title="Delete"
+                                    >
+                                        🗑️
+                                    </button>
                                 </div>
                             </td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" class="py-8 text-center">
-                                <div class="flex flex-col items-center justify-center gap-2">
-                                    <x-icon name="o-face-frown" class="w-16 h-16 text-gray-400" />
-                                    <h3 class="text-lg font-semibold text-gray-600">No subjects found</h3>
-                                    <p class="text-gray-500">Try modifying your filters or create a new subject</p>
+                            <td colspan="7" class="py-12 text-center">
+                                <div class="flex flex-col items-center justify-center gap-4">
+                                    <x-icon name="o-user-group" class="w-20 h-20 text-gray-300" />
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-600">No enrollments found</h3>
+                                        <p class="text-gray-500 mt-1">
+                                            @if($search || $subject || $academicYear || $status)
+                                                No enrollments match your current filters.
+                                            @else
+                                                Get started by creating your first enrollment.
+                                            @endif
+                                        </p>
+                                    </div>
+                                    @if($search || $subject || $academicYear || $status)
+                                        <x-button
+                                            label="Clear Filters"
+                                            wire:click="resetFilters"
+                                            color="secondary"
+                                            size="sm"
+                                        />
+                                    @else
+                                        <x-button
+                                            label="Create First Enrollment"
+                                            icon="o-plus"
+                                            wire:click="redirectToCreate"
+                                            color="primary"
+                                        />
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -384,8 +436,19 @@ new #[Title('Subjects Management')] class extends Component {
 
         <!-- Pagination -->
         <div class="mt-4">
-            {{ $subjects->links() }}
+            {{ $enrollments->links() }}
         </div>
+
+        <!-- Results summary -->
+        @if($enrollments->count() > 0)
+        <div class="mt-4 text-sm text-gray-600 border-t pt-3">
+            Showing {{ $enrollments->firstItem() ?? 0 }} to {{ $enrollments->lastItem() ?? 0 }}
+            of {{ $enrollments->total() }} enrollments
+            @if($search || $subject || $academicYear || $status)
+                (filtered from total)
+            @endif
+        </div>
+        @endif
     </x-card>
 
     <!-- Delete confirmation modal -->
@@ -396,15 +459,15 @@ new #[Title('Subjects Management')] class extends Component {
                     <x-icon name="o-exclamation-triangle" class="w-8 h-8 text-error" />
                 </div>
                 <div>
-                    <h3 class="text-lg font-semibold">Are you sure you want to delete this subject?</h3>
-                    <p class="text-gray-600">This action is irreversible. Subjects with associated sessions, exams, timetable slots, or enrollments cannot be deleted.</p>
+                    <h3 class="text-lg font-semibold">Are you sure you want to delete this enrollment?</h3>
+                    <p class="text-gray-600">This action is irreversible. The student will be unenrolled from the subject.</p>
                 </div>
             </div>
         </div>
 
         <x-slot:actions>
             <x-button label="Cancel" wire:click="cancelDelete" />
-            <x-button label="Delete" icon="o-trash" wire:click="deleteSubject" color="error" />
+            <x-button label="Delete" icon="o-trash" wire:click="deleteEnrollment" color="error" />
         </x-slot:actions>
     </x-modal>
 
@@ -413,7 +476,7 @@ new #[Title('Subjects Management')] class extends Component {
         <div class="flex flex-col gap-4 mb-4">
             <div>
                 <x-input
-                    label="Search by name or code"
+                    label="Search by student or subject"
                     wire:model.live.debounce="search"
                     icon="o-magnifying-glass"
                     placeholder="Search..."
@@ -423,30 +486,39 @@ new #[Title('Subjects Management')] class extends Component {
 
             <div>
                 <x-select
-                    label="Filter by curriculum"
-                    placeholder="All curricula"
-                    :options="$curricula"
-                    wire:model.live="curriculum"
+                    label="Filter by subject"
+                    placeholder="All subjects"
+                    :options="$subjects"
+                    wire:model.live="subject"
                     option-label="name"
                     option-value="id"
-                    empty-message="No curricula found"
+                    empty-message="No subjects found"
                 />
             </div>
 
             <div>
                 <x-select
-                    label="Filter by level"
-                    placeholder="All levels"
-                    :options="array_combine($levels, $levels)"
-                    wire:model.live="level"
-                    empty-message="No levels found"
+                    label="Filter by academic year"
+                    placeholder="All academic years"
+                    :options="$academicYears"
+                    wire:model.live="academicYear"
+                    option-label="name"
+                    option-value="id"
+                    empty-message="No academic years found"
                 />
             </div>
 
             <div>
                 <x-select
                     label="Items per page"
-                    :options="[10, 25, 50, 100]"
+                    :options="[
+                        ['id' => 10, 'name' => '10 per page'],
+                        ['id' => 25, 'name' => '25 per page'],
+                        ['id' => 50, 'name' => '50 per page'],
+                        ['id' => 100, 'name' => '100 per page']
+                    ]"
+                    option-value="id"
+                    option-label="name"
                     wire:model.live="perPage"
                 />
             </div>

@@ -2,802 +2,543 @@
 
 use App\Models\Session;
 use App\Models\TeacherProfile;
-use App\Models\StudentAttendance;
+use App\Models\Attendance;
 use App\Models\ActivityLog;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
-use Livewire\WithPagination;
 use Mary\Traits\Toast;
 
 new #[Title('Session Details')] class extends Component {
-    use WithPagination;
     use Toast;
 
-    // Session model
+    // Model instances
     public Session $session;
+    public ?TeacherProfile $teacherProfile = null;
 
-    // Statistics
-    public $totalStudents = 0;
-    public $attendedStudents = 0;
-    public $absentStudents = 0;
-    public $attendancePercentage = 0;
+    // Data collections
+    public $attendanceRecords = [];
 
-    // Active tab
-    public string $activeTab = 'details';
+    // Stats
+    public array $stats = [];
 
-    // Attendance data
-    public $attendance = [];
-
-    // Session status data
-    public $isUpcoming = false;
-    public $isInProgress = false;
-    public $isCompleted = false;
-    public $canEdit = false;
-    public $canMarkAttendance = false;
-
+    // Mount the component
     public function mount(Session $session): void
     {
-        $this->session = $session;
+        $this->session = $session->load(['subject', 'subject.curriculum', 'teacherProfile', 'attendances', 'attendances.childProfile']);
+        $this->teacherProfile = Auth::user()->teacherProfile;
 
-        // Load session with relationships
-        $this->session->load(['subject', 'teacherProfile.user']);
+        if (!$this->teacherProfile) {
+            $this->error('Teacher profile not found. Please complete your profile first.');
+            $this->redirect(route('teacher.profile.edit'));
+            return;
+        }
 
-        // Check if current teacher is the owner of this session
-        $isOwner = Auth::user()->teacherProfile &&
-                  Auth::user()->teacherProfile->id === $this->session->teacher_profile_id;
+        // Check if teacher owns this session
+        if ($this->session->teacher_profile_id !== $this->teacherProfile->id) {
+            $this->error('You are not authorized to view this session.');
+            $this->redirect(route('teacher.sessions.index'));
+            return;
+        }
 
-        // Calculate session status
-        $this->calculateSessionStatus();
+        Log::info('Session Show Component Mounted', [
+            'teacher_user_id' => Auth::id(),
+            'session_id' => $session->id,
+            'subject_id' => $session->subject_id,
+            'ip' => request()->ip()
+        ]);
 
-        // Set permissions based on ownership and status
-        $this->canEdit = $isOwner && $this->isUpcoming;
-        $this->canMarkAttendance = $isOwner && ($this->isInProgress || $this->isCompleted);
-
-        // Load attendance statistics
-        $this->loadAttendanceStats();
+        $this->loadAttendanceData();
+        $this->loadStats();
 
         // Log activity
         ActivityLog::log(
             Auth::id(),
-            'access',
-            'Teacher viewed session details: ' . $this->session->topic,
+            'view',
+            "Viewed session details: {$session->subject->name} session on {$session->start_time->format('M d, Y \a\t g:i A')}",
             Session::class,
-            $this->session->id,
-            ['ip' => request()->ip()]
+            $session->id,
+            [
+                'session_id' => $session->id,
+                'subject_name' => $session->subject->name,
+                'session_start' => $session->start_time->toDateTimeString(),
+                'ip' => request()->ip()
+            ]
         );
     }
 
-    // Calculate session status based on current time
-    private function calculateSessionStatus(): void
-    {
-        $now = Carbon::now();
-        $sessionDate = Carbon::parse($this->session->date);
-        $startTime = Carbon::parse($this->session->date . ' ' . $this->session->start_time);
-        $endTime = Carbon::parse($this->session->date . ' ' . $this->session->end_time);
-
-        $this->isUpcoming = $startTime->isFuture();
-        $this->isInProgress = $startTime->isPast() && $endTime->isFuture();
-        $this->isCompleted = $endTime->isPast();
-    }
-
-    // Load attendance statistics
-    private function loadAttendanceStats(): void
+    protected function loadAttendanceData(): void
     {
         try {
-            // Get enrolled students count
-            $this->totalStudents = $this->session->subject->enrolledStudents()->count();
+            $this->attendanceRecords = $this->session->attendances()
+                ->with(['childProfile', 'childProfile.user'])
+                ->orderBy('created_at', 'desc')
+                ->get();
 
-            // Get attendance stats if the session model has a relationship for this
-            if (method_exists($this->session, 'attendance')) {
-                $this->attendedStudents = $this->session->attendance()
-                    ->where('status', 'present')
-                    ->count();
-
-                $this->absentStudents = $this->session->attendance()
-                    ->where('status', 'absent')
-                    ->count();
-
-                // Calculate percentage
-                if ($this->totalStudents > 0) {
-                    $this->attendancePercentage = round(($this->attendedStudents / $this->totalStudents) * 100);
-                }
-            }
-        } catch (\Exception $e) {
-            // Log error
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error loading attendance stats: ' . $e->getMessage(),
-                Session::class,
-                $this->session->id,
-                ['ip' => request()->ip()]
-            );
-        }
-    }
-
-    // Change active tab
-    public function setActiveTab(string $tab): void
-    {
-        $this->activeTab = $tab;
-        $this->resetPage();
-    }
-
-    // Edit session
-    public function editSession(): void
-    {
-        if ($this->canEdit) {
-            return redirect()->route('teacher.sessions.edit', $this->session->id);
-        } else {
-            $this->error('You cannot edit this session as it has already started or completed.');
-        }
-    }
-
-    // Mark attendance
-    public function markAttendance(): void
-    {
-        if ($this->canMarkAttendance) {
-            return redirect()->route('teacher.sessions.attendance', $this->session->id);
-        } else {
-            $this->error('You can only mark attendance for ongoing or completed sessions.');
-        }
-    }
-
-    // Cancel session
-    public function cancelSession(): void
-    {
-        if (!$this->canEdit) {
-            $this->error('You cannot cancel this session as it has already started or completed.');
-            return;
-        }
-
-        try {
-            // Update session status
-            $this->session->update([
-                'status' => 'cancelled',
+            Log::info('Attendance Data Loaded', [
+                'session_id' => $this->session->id,
+                'attendance_count' => $this->attendanceRecords->count()
             ]);
 
-            // Refresh status
-            $this->session->refresh();
-
-            // Log activity
-            ActivityLog::log(
-                Auth::id(),
-                'cancel',
-                'Teacher cancelled session: ' . $this->session->topic,
-                Session::class,
-                $this->session->id,
-                ['ip' => request()->ip()]
-            );
-
-            $this->success('Session has been cancelled successfully.');
-
-            // Redirect back to sessions list
-            return redirect()->route('teacher.sessions.index');
         } catch (\Exception $e) {
-            // Log error
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error cancelling session: ' . $e->getMessage(),
-                Session::class,
-                $this->session->id,
-                ['ip' => request()->ip()]
-            );
+            Log::error('Failed to load attendance data', [
+                'session_id' => $this->session->id,
+                'error' => $e->getMessage()
+            ]);
 
-            $this->error('Failed to cancel session: ' . $e->getMessage());
+            $this->attendanceRecords = collect();
         }
     }
 
-    // Get enrolled students with attendance status
-    public function studentsWithAttendance()
+    protected function loadStats(): void
     {
         try {
-            if (method_exists($this->session, 'attendance') &&
-                method_exists($this->session->subject, 'enrolledStudents')) {
+            $totalAttendees = $this->attendanceRecords->count();
+            $presentCount = $this->attendanceRecords->where('status', 'present')->count();
+            $absentCount = $this->attendanceRecords->where('status', 'absent')->count();
+            $lateCount = $this->attendanceRecords->where('status', 'late')->count();
+            $excusedCount = $this->attendanceRecords->where('status', 'excused')->count();
 
-                // Get all enrolled students
-                $students = $this->session->subject->enrolledStudents()
-                    ->with('childProfile.user')
-                    ->paginate(10);
+            $attendanceRate = $totalAttendees > 0 ? round(($presentCount + $lateCount) / $totalAttendees * 100, 1) : 0;
 
-                // Get attendance records for this session
-                $attendanceRecords = $this->session->attendance()
-                    ->pluck('status', 'student_id')
-                    ->toArray();
+            $this->stats = [
+                'total_attendees' => $totalAttendees,
+                'present_count' => $presentCount,
+                'absent_count' => $absentCount,
+                'late_count' => $lateCount,
+                'excused_count' => $excusedCount,
+                'attendance_rate' => $attendanceRate,
+            ];
 
-                // Add attendance status to each student
-                foreach ($students as $student) {
-                    $student->attendance_status = $attendanceRecords[$student->id] ?? 'not_marked';
-                }
-
-                return $students;
-            }
-
-            return [];
         } catch (\Exception $e) {
-            // Log error
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error loading students with attendance: ' . $e->getMessage(),
-                Session::class,
-                $this->session->id,
-                ['ip' => request()->ip()]
-            );
-
-            return [];
+            $this->stats = [
+                'total_attendees' => 0,
+                'present_count' => 0,
+                'absent_count' => 0,
+                'late_count' => 0,
+                'excused_count' => 0,
+                'attendance_rate' => 0,
+            ];
         }
     }
 
-    // Get session materials/resources
-    public function sessionMaterials()
+    // Get session status
+    public function getSessionStatusProperty(): array
     {
-        try {
-            if (method_exists($this->session, 'materials')) {
-                return $this->session->materials;
+        $now = now();
+
+        if ($this->session->start_time > $now) {
+            return ['status' => 'upcoming', 'color' => 'bg-blue-100 text-blue-800', 'text' => 'Upcoming'];
+        } elseif ($this->session->start_time <= $now && $this->session->end_time >= $now) {
+            return ['status' => 'ongoing', 'color' => 'bg-green-100 text-green-800', 'text' => 'Ongoing'];
+        } else {
+            return ['status' => 'completed', 'color' => 'bg-gray-100 text-gray-600', 'text' => 'Completed'];
+        }
+    }
+
+    // Get session type color
+    public function getSessionTypeColor(string $type): string
+    {
+        return match(strtolower($type)) {
+            'lecture' => 'bg-blue-100 text-blue-800',
+            'practical' => 'bg-green-100 text-green-800',
+            'tutorial' => 'bg-purple-100 text-purple-800',
+            'lab' => 'bg-orange-100 text-orange-800',
+            'seminar' => 'bg-indigo-100 text-indigo-800',
+            default => 'bg-gray-100 text-gray-600'
+        };
+    }
+
+    // Get attendance status color
+    public function getAttendanceStatusColor(string $status): string
+    {
+        return match(strtolower($status)) {
+            'present' => 'bg-green-100 text-green-800',
+            'absent' => 'bg-red-100 text-red-800',
+            'late' => 'bg-yellow-100 text-yellow-800',
+            'excused' => 'bg-blue-100 text-blue-800',
+            default => 'bg-gray-100 text-gray-600'
+        };
+    }
+
+    // Navigation methods
+    public function redirectToEdit(): void
+    {
+        $this->redirect(route('teacher.sessions.edit', $this->session->id));
+    }
+
+    public function redirectToTakeAttendance(): void
+    {
+        $this->redirect(route('teacher.attendance.take', $this->session->id));
+    }
+
+    public function redirectToSessionsList(): void
+    {
+        $this->redirect(route('teacher.sessions.index'));
+    }
+
+    public function redirectToSubjectShow(): void
+    {
+        $this->redirect(route('teacher.subjects.show', $this->session->subject_id));
+    }
+
+    // Format duration
+    public function getDurationProperty(): string
+    {
+        if ($this->session->start_time && $this->session->end_time) {
+            $duration = $this->session->start_time->diffInMinutes($this->session->end_time);
+
+            if ($duration >= 60) {
+                $hours = floor($duration / 60);
+                $minutes = $duration % 60;
+                return $minutes > 0 ? "{$hours}h {$minutes}m" : "{$hours}h";
             }
 
-            return [];
-        } catch (\Exception $e) {
-            // Log error
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error loading session materials: ' . $e->getMessage(),
-                Session::class,
-                $this->session->id,
-                ['ip' => request()->ip()]
-            );
-
-            return [];
+            return "{$duration}m";
         }
+
+        return 'Unknown';
     }
 
     public function with(): array
     {
         return [
-            'studentsWithAttendance' => $this->studentsWithAttendance(),
-            'sessionMaterials' => $this->sessionMaterials(),
+            'sessionStatus' => $this->sessionStatus,
+            'duration' => $this->duration,
         ];
     }
-};
-?>
+};?>
 
 <div>
     <!-- Page header -->
-    <x-header :title="$session->topic" separator progress-indicator>
-        <x-slot:subtitle>
-            {{ $session->subject->name ?? 'Unknown Subject' }} | {{ $session->date->format('d M Y') }} | {{ $session->start_time }} - {{ $session->end_time }}
-        </x-slot:subtitle>
+    <x-header title="Session: {{ $session->subject->name }}" separator>
+        <x-slot:middle class="!justify-end">
+            <!-- Session Status -->
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium {{ $sessionStatus['color'] }}">
+                {{ $sessionStatus['text'] }}
+            </span>
+        </x-slot:middle>
 
         <x-slot:actions>
-            @if ($canEdit && $session->status !== 'cancelled')
+            @if($sessionStatus['status'] === 'upcoming' || $sessionStatus['status'] === 'ongoing')
                 <x-button
-                    label="Edit Session"
-                    icon="o-pencil-square"
-                    wire:click="editSession"
+                    label="Take Attendance"
+                    icon="o-clipboard-document-check"
+                    wire:click="redirectToTakeAttendance"
                     class="btn-primary"
                 />
-
-                <x-button
-                    label="Cancel Session"
-                    icon="o-x-circle"
-                    wire:click="cancelSession"
-                    class="btn-error"
-                    onclick="confirm('Are you sure you want to cancel this session?') || event.stopImmediatePropagation()"
-                />
             @endif
 
-            @if ($canMarkAttendance && $session->status !== 'cancelled')
-                <x-button
-                    label="Mark Attendance"
-                    icon="o-clipboard-document-check"
-                    wire:click="markAttendance"
-                    class="{{ $isInProgress ? 'btn-warning' : 'btn-primary' }}"
-                />
-            @endif
+            <x-button
+                label="Edit Session"
+                icon="o-pencil"
+                wire:click="redirectToEdit"
+                class="btn-secondary"
+            />
+
+            <x-button
+                label="Back to Sessions"
+                icon="o-arrow-left"
+                wire:click="redirectToSessionsList"
+                class="btn-ghost"
+            />
         </x-slot:actions>
     </x-header>
 
-    <!-- Session Status -->
-    <div class="mb-6">
-        @if ($session->status === 'cancelled')
-            <div class="p-4 text-white shadow-lg alert bg-error">
-                <div>
-                    <x-icon name="o-exclamation-triangle" class="w-6 h-6" />
-                    <span>This session has been cancelled.</span>
-                </div>
-            </div>
-        @elseif ($isInProgress)
-            <div class="p-4 shadow-lg alert bg-warning text-warning-content">
-                <div>
-                    <x-icon name="o-clock" class="w-6 h-6" />
-                    <span>This session is currently in progress.</span>
-                </div>
-            </div>
-        @elseif ($isUpcoming)
-            <div class="p-4 shadow-lg alert bg-info text-info-content">
-                <div>
-                    <x-icon name="o-calendar" class="w-6 h-6" />
-                    <span>This session is scheduled for {{ $session->date->format('d M Y') }} at {{ $session->start_time }}.</span>
-                </div>
-            </div>
-        @elseif ($isCompleted)
-            <div class="p-4 shadow-lg alert bg-success text-success-content">
-                <div>
-                    <x-icon name="o-check-circle" class="w-6 h-6" />
-                    <span>This session was completed on {{ $session->date->format('d M Y') }}.</span>
-                </div>
-            </div>
-        @endif
-    </div>
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <!-- Left column (2/3) - Main Content -->
+        <div class="space-y-6 lg:col-span-2">
+            <!-- Session Information -->
+            <x-card title="Session Information">
+                <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                    <div>
+                        <div class="text-sm font-medium text-gray-500">Subject</div>
+                        <div class="text-lg font-semibold">{{ $session->subject->name }}</div>
+                        <div class="text-sm text-gray-600">{{ $session->subject->code }}</div>
+                        @if($session->subject->curriculum)
+                            <div class="text-xs text-gray-500">{{ $session->subject->curriculum->name }}</div>
+                        @endif
+                    </div>
 
-    <!-- Stats Cards -->
-    <div class="grid grid-cols-1 gap-4 mb-6 md:grid-cols-4">
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-primary">
-                <x-icon name="o-users" class="w-8 h-8" />
-            </div>
-            <div class="stat-title">Total Students</div>
-            <div class="stat-value">{{ $totalStudents }}</div>
-            <div class="stat-desc">Enrolled in the subject</div>
-        </div>
+                    <div>
+                        <div class="text-sm font-medium text-gray-500">Session Type</div>
+                        <div>
+                            @if($session->type)
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $this->getSessionTypeColor($session->type) }}">
+                                    {{ ucfirst($session->type) }}
+                                </span>
+                            @else
+                                <span class="text-gray-500">Not specified</span>
+                            @endif
+                        </div>
+                    </div>
 
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-success">
-                <x-icon name="o-check-circle" class="w-8 h-8" />
-            </div>
-            <div class="stat-title">Present</div>
-            <div class="stat-value text-success">{{ $attendedStudents }}</div>
-            <div class="stat-desc">Attended the session</div>
-        </div>
+                    <div>
+                        <div class="text-sm font-medium text-gray-500">Date & Time</div>
+                        <div class="font-semibold">{{ $session->start_time->format('l, M d, Y') }}</div>
+                        <div class="text-sm text-gray-600">
+                            {{ $session->start_time->format('g:i A') }}
+                            @if($session->end_time)
+                                - {{ $session->end_time->format('g:i A') }}
+                            @endif
+                        </div>
+                        <div class="text-xs text-gray-500">Duration: {{ $duration }}</div>
+                    </div>
 
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-error">
-                <x-icon name="o-x-circle" class="w-8 h-8" />
-            </div>
-            <div class="stat-title">Absent</div>
-            <div class="stat-value text-error">{{ $absentStudents }}</div>
-            <div class="stat-desc">Missed the session</div>
-        </div>
+                    <div>
+                        <div class="text-sm font-medium text-gray-500">Status</div>
+                        <div>
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $sessionStatus['color'] }}">
+                                {{ $sessionStatus['text'] }}
+                            </span>
+                        </div>
+                        <div class="mt-1 text-xs text-gray-500">
+                            @if($sessionStatus['status'] === 'upcoming')
+                                Starts {{ $session->start_time->diffForHumans() }}
+                            @elseif($sessionStatus['status'] === 'ongoing')
+                                Ends {{ $session->end_time->diffForHumans() }}
+                            @else
+                                Ended {{ $session->end_time->diffForHumans() }}
+                            @endif
+                        </div>
+                    </div>
 
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-info">
-                <x-icon name="o-presentation-chart-bar" class="w-8 h-8" />
-            </div>
-            <div class="stat-title">Attendance</div>
-            <div class="stat-value text-info">{{ $attendancePercentage }}%</div>
-            <div class="stat-desc">Attendance rate</div>
-        </div>
-    </div>
+                    @if($session->classroom_id)
+                        <div>
+                            <div class="text-sm font-medium text-gray-500">Room</div>
+                            <div class="font-medium">{{ $session->room ? $session->room->name : 'Room #' . $session->classroom_id }}</div>
+                            @if($session->room)
+                                <div class="text-sm text-gray-600">
+                                    @if($session->room->location)
+                                        {{ $session->room->location }}
+                                    @endif
+                                    @if($session->room->building)
+                                        • {{ $session->room->building }}
+                                    @endif
+                                </div>
+                                <div class="text-xs text-gray-500">Capacity: {{ $session->room->capacity }}</div>
+                            @endif
+                        </div>
+                    @endif
 
-    <!-- Tab Navigation -->
-    <div class="mb-6 tabs">
-        <a
-            wire:click="setActiveTab('details')"
-            class="tab tab-bordered {{ $activeTab === 'details' ? 'tab-active' }}"
-        >
-            Session Details
-        </a>
-        <a
-            wire:click="setActiveTab('students')"
-            class="tab tab-bordered {{ $activeTab === 'students' ? 'tab-active' }}"
-        >
-            Students
-        </a>
-        <a
-            wire:click="setActiveTab('materials')"
-            class="tab tab-bordered {{ $activeTab === 'materials' ? 'tab-active' }}"
-        >
-            Materials
-        </a>
-    </div>
-
-    <!-- Tab Content -->
-    <div class="tab-content">
-        <!-- Details Tab -->
-        @if ($activeTab === 'details')
-            <div class="grid grid-cols-1 gap-6 md:grid-cols-3">
-                <!-- Session Information -->
-                <div class="md:col-span-2">
-                    <x-card title="Session Information">
-                        <div class="space-y-4">
+                    @if($session->link)
+                        <div>
+                            <div class="text-sm font-medium text-gray-500">Online Link</div>
                             <div>
-                                <h3 class="font-medium">Subject</h3>
-                                <p>{{ $session->subject->name ?? 'Unknown Subject' }} ({{ $session->subject->code ?? 'N/A' }})</p>
+                                <a
+                                    href="{{ $session->link }}"
+                                    target="_blank"
+                                    class="text-sm text-blue-600 break-all hover:text-blue-800"
+                                >
+                                    <x-icon name="o-link" class="inline w-4 h-4 mr-1" />
+                                    Join Session
+                                </a>
                             </div>
+                        </div>
+                    @endif
+                </div>
 
-                            <div>
-                                <h3 class="font-medium">Topic</h3>
-                                <p>{{ $session->topic }}</p>
-                            </div>
+                @if($session->description)
+                    <div class="pt-4 mt-4 border-t">
+                        <div class="mb-2 text-sm font-medium text-gray-500">Description</div>
+                        <div class="p-3 text-sm text-gray-600 rounded-md bg-gray-50">
+                            {{ $session->description }}
+                        </div>
+                    </div>
+                @endif
+            </x-card>
 
-                            <div>
-                                <h3 class="font-medium">Description</h3>
-                                <div class="prose max-w-none">
-                                    @if ($session->description)
-                                        {!! nl2br(e($session->description)) !!}
-                                    @else
-                                        <p class="text-gray-500">No description provided.</p>
+            <!-- Attendance Overview -->
+            <x-card title="Attendance Overview">
+                @if($stats['total_attendees'] > 0)
+                    <!-- Attendance Stats -->
+                    <div class="grid grid-cols-2 gap-4 mb-6 md:grid-cols-4">
+                        <div class="p-4 text-center rounded-lg bg-green-50">
+                            <div class="text-2xl font-bold text-green-600">{{ $stats['present_count'] }}</div>
+                            <div class="text-sm text-green-600">Present</div>
+                        </div>
+
+                        <div class="p-4 text-center rounded-lg bg-yellow-50">
+                            <div class="text-2xl font-bold text-yellow-600">{{ $stats['late_count'] }}</div>
+                            <div class="text-sm text-yellow-600">Late</div>
+                        </div>
+
+                        <div class="p-4 text-center rounded-lg bg-red-50">
+                            <div class="text-2xl font-bold text-red-600">{{ $stats['absent_count'] }}</div>
+                            <div class="text-sm text-red-600">Absent</div>
+                        </div>
+
+                        <div class="p-4 text-center rounded-lg bg-blue-50">
+                            <div class="text-2xl font-bold text-blue-600">{{ $stats['excused_count'] }}</div>
+                            <div class="text-sm text-blue-600">Excused</div>
+                        </div>
+                    </div>
+
+                    <!-- Attendance Rate -->
+                    <div class="mb-6">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-medium text-gray-700">Attendance Rate</span>
+                            <span class="text-sm font-bold text-gray-900">{{ $stats['attendance_rate'] }}%</span>
+                        </div>
+                        <div class="w-full h-2 bg-gray-200 rounded-full">
+                            <div class="h-2 bg-green-600 rounded-full" style="width: {{ $stats['attendance_rate'] }}%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Attendance Records -->
+                    <div class="space-y-3">
+                        <div class="text-sm font-medium text-gray-700">Student Attendance</div>
+                        @foreach($attendanceRecords as $attendance)
+                            <div class="flex items-center justify-between p-3 border rounded-lg">
+                                <div class="flex items-center space-x-3">
+                                    <div class="avatar">
+                                        <div class="w-8 h-8 rounded-full">
+                                            <img src="{{ $attendance->childProfile->user->profile_photo_url ?? 'https://ui-avatars.com/api/?name=' . urlencode($attendance->childProfile->full_name) }}" alt="{{ $attendance->childProfile->full_name }}" />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="font-medium">{{ $attendance->childProfile->full_name }}</div>
+                                        @if($attendance->notes)
+                                            <div class="text-xs text-gray-500">{{ $attendance->notes }}</div>
+                                        @endif
+                                    </div>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $this->getAttendanceStatusColor($attendance->status) }}">
+                                        {{ ucfirst($attendance->status) }}
+                                    </span>
+                                    @if($attendance->check_in_time)
+                                        <div class="text-xs text-gray-500">
+                                            {{ $attendance->check_in_time->format('g:i A') }}
+                                        </div>
                                     @endif
                                 </div>
                             </div>
-                        </div>
-                    </x-card>
-
-                    <!-- Teacher Notes -->
-                    <x-card title="Teacher Notes" class="mt-6">
-                        <div class="prose max-w-none">
-                            @if (isset($session->teacher_notes) && $session->teacher_notes)
-                                {!! nl2br(e($session->teacher_notes)) !!}
-                            @else
-                                <p class="text-gray-500">No teacher notes have been added yet.</p>
-
-                                @if ($canEdit || $isInProgress || $isCompleted)
-                                    <div class="mt-4">
-                                        <x-button
-                                            label="Add Notes"
-                                            icon="o-pencil-square"
-                                            href="{{ route('teacher.sessions.edit', $session->id) }}#notes"
-                                            class="btn-sm btn-outline"
-                                        />
-                                    </div>
-                                @endif
-                            @endif
-                        </div>
-                    </x-card>
-                </div>
-
-                <!-- Session Details -->
-                <div>
-                    <x-card title="Details">
-                        <ul class="space-y-3">
-                            <li class="flex justify-between">
-                                <span class="text-gray-600">Date:</span>
-                                <span class="font-medium">{{ $session->date->format('d F Y') }}</span>
-                            </li>
-                            <li class="flex justify-between">
-                                <span class="text-gray-600">Time:</span>
-                                <span class="font-medium">{{ $session->start_time }} - {{ $session->end_time }}</span>
-                            </li>
-                            <li class="flex justify-between">
-                                <span class="text-gray-600">Duration:</span>
-                                @php
-                                    $startTime = Carbon\Carbon::parse($session->start_time);
-                                    $endTime = Carbon\Carbon::parse($session->end_time);
-                                    $durationMinutes = $endTime->diffInMinutes($startTime);
-                                    $hours = floor($durationMinutes / 60);
-                                    $minutes = $durationMinutes % 60;
-                                    $duration = ($hours > 0 ? $hours . ' hr ' : '') . ($minutes > 0 ? $minutes . ' min' : '');
-                                @endphp
-                                <span class="font-medium">{{ $duration }}</span>
-                            </li>
-                            <li class="flex justify-between">
-                                <span class="text-gray-600">Status:</span>
-                                <span class="font-medium">
-                                    @if ($session->status === 'cancelled')
-                                        <x-badge label="Cancelled" color="error" />
-                                    @elseif ($isInProgress)
-                                        <x-badge label="In Progress" color="warning" />
-                                    @elseif ($isUpcoming)
-                                        <x-badge label="Upcoming" color="info" />
-                                    @elseif ($isCompleted)
-                                        <x-badge label="Completed" color="success" />
-                                    @endif
-                                </span>
-                            </li>
-                            <li class="flex justify-between">
-                                <span class="text-gray-600">Location:</span>
-                                <span class="font-medium">
-                                    @if ($session->is_online)
-                                        <span class="flex items-center">
-                                            <x-icon name="o-computer-desktop" class="w-4 h-4 mr-1" />
-                                            Online
-                                        </span>
-                                    @else
-                                        <span class="flex items-center">
-                                            <x-icon name="o-building-office" class="w-4 h-4 mr-1" />
-                                            {{ optional($session->classroom)->name ?? 'Room not specified' }}
-                                        </span>
-                                    @endif
-                                </span>
-                            </li>
-
-                            @if ($session->is_online)
-                                <li class="flex justify-between">
-                                    <span class="text-gray-600">Meeting URL:</span>
-                                    <a href="{{ $session->online_meeting_url }}" target="_blank" class="font-medium text-primary hover:underline">
-                                        Join Meeting
-                                    </a>
-                                </li>
-
-                                @if ($session->online_meeting_password)
-                                    <li class="flex justify-between">
-                                        <span class="text-gray-600">Password:</span>
-                                        <span class="font-medium">{{ $session->online_meeting_password }}</span>
-                                    </li>
-                                @endif
-                            @endif
-
-                            <li class="flex justify-between">
-                                <span class="text-gray-600">Teacher:</span>
-                                <span class="font-medium">{{ optional($session->teacherProfile)->user->name ?? 'Unknown Teacher' }}</span>
-                            </li>
-                        </ul>
-                    </x-card>
-
-                    <!-- Quick Actions -->
-                    <x-card title="Actions" class="mt-6">
-                        <div class="space-y-2">
-                            @if ($canMarkAttendance && $session->status !== 'cancelled')
-                                <x-button
-                                    label="Mark Attendance"
-                                    icon="o-clipboard-document-check"
-                                    wire:click="markAttendance"
-                                    class="w-full"
-                                />
-                            @endif
-
-                            @if (method_exists($session, 'materials'))
-                                <x-button
-                                    label="Upload Materials"
-                                    icon="o-paper-clip"
-                                    href="{{ route('teacher.sessions.materials', $session->id) }}"
-                                    class="w-full btn-outline"
-                                />
-                            @endif
-
-                            @if ($canEdit && $session->status !== 'cancelled')
-                                <x-button
-                                    label="Edit Session"
-                                    icon="o-pencil-square"
-                                    wire:click="editSession"
-                                    class="w-full btn-outline"
-                                />
-                            @endif
-                        </div>
-                    </x-card>
-                </div>
-            </div>
-        @endif
-
-        <!-- Students Tab -->
-        @if ($activeTab === 'students')
-            <x-card title="Enrolled Students">
-                <div class="overflow-x-auto">
-                    <table class="table w-full table-zebra">
-                        <thead>
-                            <tr>
-                                <th>Student</th>
-                                <th>Program</th>
-                                <th>Status</th>
-                                <th class="text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @forelse ($studentsWithAttendance as $student)
-                                <tr class="hover">
-                                    <td>
-                                        <div class="flex items-center gap-3">
-                                            <div class="avatar">
-                                                <div class="w-10 h-10 mask mask-squircle">
-                                                    @if ($student->childProfile->photo)
-                                                        <img src="{{ asset('storage/' . $student->childProfile->photo) }}" alt="{{ $student->childProfile->user->name ?? 'Student' }}">
-                                                    @else
-                                                        <img src="{{ 'https://ui-avatars.com/api/?name=' . urlencode($student->childProfile->user->name ?? 'Student') . '&color=7F9CF5&background=EBF4FF' }}" alt="{{ $student->childProfile->user->name ?? 'Student' }}">
-                                                    @endif
-                                                </div>
-                                            </div>
-                                            <div>
-                                                {{ $student->childProfile->user->name ?? 'Unknown Student' }}
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td>{{ $student->program->name ?? 'Unknown Program' }}</td>
-                                    <td>
-                                        @if ($student->attendance_status === 'present')
-                                            <x-badge label="Present" color="success" />
-                                        @elseif ($student->attendance_status === 'absent')
-                                            <x-badge label="Absent" color="error" />
-                                        @elseif ($student->attendance_status === 'late')
-                                            <x-badge label="Late" color="warning" />
-                                        @elseif ($student->attendance_status === 'excused')
-                                            <x-badge label="Excused" color="info" />
-                                        @else
-                                            <x-badge label="Not Marked" color="ghost" />
-                                        @endif
-                                    </td>
-                                    <td class="text-right">
-                                        <div class="flex justify-end gap-2">
-                                            <x-button
-                                                icon="o-user"
-                                                color="secondary"
-                                                size="sm"
-                                                tooltip="View Student Profile"
-                                                href="{{ route('teacher.students.show', $student->childProfile->id) }}"
-                                            />
-
-                                            @if ($canMarkAttendance && $session->status !== 'cancelled')
-                                                <x-button
-                                                    icon="o-clipboard-document-check"
-                                                    color="primary"
-                                                    size="sm"
-                                                    tooltip="Mark Attendance"
-                                                    wire:click="markAttendance"
-                                                />
-                                            @endif
-                                        </div>
-                                    </td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="4" class="py-8 text-center">
-                                        <div class="flex flex-col items-center justify-center gap-2">
-                                            <x-icon name="o-users" class="w-16 h-16 text-gray-400" />
-                                            <h3 class="text-lg font-semibold text-gray-600">No students enrolled</h3>
-                                            <p class="text-gray-500">There are no students enrolled in this subject yet</p>
-                                        </div>
-                                    </td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Pagination -->
-                @if ($studentsWithAttendance instanceof \Illuminate\Pagination\LengthAwarePaginator)
-                    <div class="mt-4">
-                        {{ $studentsWithAttendance->links() }}
+                        @endforeach
+                    </div>
+                @else
+                    <div class="py-8 text-center">
+                        <x-icon name="o-clipboard-document-check" class="w-12 h-12 mx-auto text-gray-300" />
+                        <div class="mt-2 text-sm text-gray-500">No attendance records</div>
+                        @if($sessionStatus['status'] === 'upcoming' || $sessionStatus['status'] === 'ongoing')
+                            <x-button
+                                label="Take Attendance"
+                                icon="o-plus"
+                                wire:click="redirectToTakeAttendance"
+                                class="mt-2 btn-primary btn-sm"
+                            />
+                        @else
+                            <p class="mt-1 text-xs text-gray-400">Attendance was not taken for this session</p>
+                        @endif
                     </div>
                 @endif
             </x-card>
-        @endif
+        </div>
 
-        <!-- Materials Tab -->
-        @if ($activeTab === 'materials')
-            <x-card title="Session Materials">
-                <div class="mb-4">
-                    <p class="text-sm text-gray-600">Resources and materials for this session:</p>
-                </div>
-
-                <div class="overflow-x-auto">
-                    <table class="table w-full table-zebra">
-                        <thead>
-                            <tr>
-                                <th>Title</th>
-                                <th>Type</th>
-                                <th>Uploaded</th>
-                                <th class="text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @forelse ($sessionMaterials as $material)
-                                <tr class="hover">
-                                    <td>{{ $material->title }}</td>
-                                    <td>
-                                        @php
-                                            $icon = 'o-document-text';
-                                            $type = 'Document';
-
-                                            if (isset($material->file_type)) {
-                                                switch ($material->file_type) {
-                                                    case 'pdf':
-                                                        $icon = 'o-document-text';
-                                                        $type = 'PDF Document';
-                                                        break;
-                                                    case 'doc':
-                                                    case 'docx':
-                                                        $icon = 'o-document-text';
-                                                        $type = 'Word Document';
-                                                        break;
-                                                    case 'xls':
-                                                    case 'xlsx':
-                                                        $icon = 'o-table-cells';
-                                                        $type = 'Spreadsheet';
-                                                        break;
-                                                    case 'ppt':
-                                                    case 'pptx':
-                                                        $icon = 'o-presentation-chart-bar';
-                                                        $type = 'Presentation';
-                                                        break;
-                                                    case 'jpg':
-                                                    case 'jpeg':
-                                                    case 'png':
-                                                        $icon = 'o-photo';
-                                                        $type = 'Image';
-                                                        break;
-                                                    case 'mp4':
-                                                    case 'avi':
-                                                    case 'mov':
-                                                        $icon = 'o-video-camera';
-                                                        $type = 'Video';
-                                                        break;
-                                                    case 'mp3':
-                                                    case 'wav':
-                                                        $icon = 'o-musical-note';
-                                                        $type = 'Audio';
-                                                        break;
-                                                    case 'zip':
-                                                    case 'rar':
-                                                        $icon = 'o-archive-box';
-                                                        $type = 'Archive';
-                                                        break;
-                                                    default:
-                                                        $icon = 'o-document-text';
-                                                        $type = 'Document';
-                                                }
-                                            }
-                                        @endphp
-
-                                        <div class="flex items-center gap-2">
-                                            <x-icon name="{{ $icon }}" class="w-5 h-5" />
-                                            <span>{{ $type }}</span>
-                                        </div>
-                                    </td>
-                                    <td>{{ isset($material->created_at) ? $material->created_at->format('d M Y, H:i') : 'Unknown' }}</td>
-                                    <td class="text-right">
-                                        <div class="flex justify-end gap-2">
-                                            <x-button
-                                                icon="o-arrow-down-tray"
-                                                color="primary"
-                                                size="sm"
-                                                tooltip="Download Material"
-                                                href="{{ isset($material->file_path) ? asset('storage/' . $material->file_path) : '#' }}"
-                                                target="_blank"
-                                            />
-
-                                            @if (($canEdit || $isInProgress) && optional(Auth::user()->teacherProfile)->id === $session->teacher_profile_id)
-                                                <x-button
-                                                    icon="o-trash"
-                                                    color="error"
-                                                    size="sm"
-                                                    tooltip="Delete Material"
-                                                    href="{{ route('teacher.materials.delete', $material->id) }}"
-                                                    onclick="confirm('Are you sure you want to delete this material?') || event.stopImmediatePropagation()"
-                                                />
-                                            @endif
-                                        </div>
-                                    </td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="4" class="py-8 text-center">
-                                        <div class="flex flex-col items-center justify-center gap-2">
-                                            <x-icon name="o-document-text" class="w-16 h-16 text-gray-400" />
-                                            <h3 class="text-lg font-semibold text-gray-600">No materials available</h3>
-                                            <p class="text-gray-500">No learning materials have been uploaded for this session yet</p>
-
-                                            @if (($canEdit || $isInProgress) && optional(Auth::user()->teacherProfile)->id === $session->teacher_profile_id)
-                                                <div class="mt-4">
-                                                    <x-button
-                                                        label="Upload Materials"
-                                                        icon="o-arrow-up-tray"
-                                                        href="{{ route('teacher.sessions.materials', $session->id) }}"
-                                                        class="btn-primary"
-                                                    />
-                                                </div>
-                                            @endif
-                                        </div>
-                                    </td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-
-                @if (($canEdit || $isInProgress) && optional(Auth::user()->teacherProfile)->id === $session->teacher_profile_id)
-                    <div class="flex justify-end mt-6">
+        <!-- Right column (1/3) - Sidebar -->
+        <div class="space-y-6">
+            <!-- Quick Actions -->
+            <x-card title="Quick Actions">
+                <div class="space-y-3">
+                    @if($sessionStatus['status'] === 'upcoming' || $sessionStatus['status'] === 'ongoing')
                         <x-button
-                            label="Upload New Material"
-                            icon="o-arrow-up-tray"
-                            href="{{ route('teacher.sessions.materials', $session->id) }}"
-                            class="btn-primary"
+                            label="Take Attendance"
+                            icon="o-clipboard-document-check"
+                            wire:click="redirectToTakeAttendance"
+                            class="w-full btn-primary"
                         />
-                    </div>
-                @endif
+                    @endif
+
+                    <x-button
+                        label="Edit Session"
+                        icon="o-pencil"
+                        wire:click="redirectToEdit"
+                        class="w-full btn-secondary"
+                    />
+
+                    @if($session->link)
+                        <a
+                            href="{{ $session->link }}"
+                            target="_blank"
+                            class="w-full btn btn-outline"
+                        >
+                            <x-icon name="o-link" class="w-4 h-4 mr-2" />
+                            Join Online Session
+                        </a>
+                    @endif
+
+                    <x-button
+                        label="View Subject"
+                        icon="o-academic-cap"
+                        wire:click="redirectToSubjectShow"
+                        class="w-full btn-outline"
+                    />
+
+                    <x-button
+                        label="All Sessions"
+                        icon="o-presentation-chart-line"
+                        wire:click="redirectToSessionsList"
+                        class="w-full btn-outline"
+                    />
+                </div>
             </x-card>
-        @endif
+
+            <!-- Session Statistics -->
+            <x-card title="Session Statistics">
+                <div class="space-y-3 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Total Students:</span>
+                        <span class="font-medium">{{ $stats['total_attendees'] }}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Present:</span>
+                        <span class="font-medium text-green-600">{{ $stats['present_count'] }}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Late:</span>
+                        <span class="font-medium text-yellow-600">{{ $stats['late_count'] }}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Absent:</span>
+                        <span class="font-medium text-red-600">{{ $stats['absent_count'] }}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Excused:</span>
+                        <span class="font-medium text-blue-600">{{ $stats['excused_count'] }}</span>
+                    </div>
+                    <div class="pt-2 border-t">
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Attendance Rate:</span>
+                            <span class="font-bold text-gray-900">{{ $stats['attendance_rate'] }}%</span>
+                        </div>
+                    </div>
+                </div>
+            </x-card>
+
+            <!-- Session Details -->
+            <x-card title="Session Details">
+                <div class="space-y-3 text-sm">
+                    <div>
+                        <div class="font-medium text-gray-500">Created</div>
+                        <div>{{ $session->created_at->format('M d, Y \a\t g:i A') }}</div>
+                        <div class="text-xs text-gray-400">{{ $session->created_at->diffForHumans() }}</div>
+                    </div>
+
+                    @if($session->updated_at->ne($session->created_at))
+                        <div>
+                            <div class="font-medium text-gray-500">Last Updated</div>
+                            <div>{{ $session->updated_at->format('M d, Y \a\t g:i A') }}</div>
+                            <div class="text-xs text-gray-400">{{ $session->updated_at->diffForHumans() }}</div>
+                        </div>
+                    @endif
+
+                    <div>
+                        <div class="font-medium text-gray-500">Session ID</div>
+                        <div class="font-mono text-xs">#{{ $session->id }}</div>
+                    </div>
+                </div>
+            </x-card>
+        </div>
     </div>
 </div>

@@ -57,6 +57,24 @@ new #[Title('Curricula Management')] class extends Component {
         }
     }
 
+    // Redirect to create page
+    public function redirectToCreate(): void
+    {
+        $this->redirect(route('admin.curricula.create'));
+    }
+
+    // Redirect to show page
+    public function redirectToShow(int $curriculumId): void
+    {
+        $this->redirect(route('admin.curricula.show', $curriculumId));
+    }
+
+    // Redirect to edit page
+    public function redirectToEdit(int $curriculumId): void
+    {
+        $this->redirect(route('admin.curricula.edit', $curriculumId));
+    }
+
     // Confirm deletion
     public function confirmDelete(int $curriculumId): void
     {
@@ -121,6 +139,9 @@ new #[Title('Curricula Management')] class extends Component {
 
                     // Show toast notification
                     $this->success("Curriculum {$curriculumDetails['name']} has been successfully deleted.");
+
+                    // Refresh the page data after successful deletion
+                    $this->resetPage();
                 } catch (\Exception $e) {
                     DB::rollBack();
                     $this->error("An error occurred during deletion: {$e->getMessage()}");
@@ -138,8 +159,8 @@ new #[Title('Curricula Management')] class extends Component {
     public function curricula(): LengthAwarePaginator
     {
         return Curriculum::query()
-            ->with(['subjects', 'programEnrollments', 'paymentPlans']) // Eager load relationships
-            ->withCount(['subjects', 'programEnrollments'])
+            ->select(['id', 'name', 'code', 'description', 'created_at', 'updated_at'])
+            ->withCount(['subjects', 'programEnrollments']) // Fixed relationship name
             ->when($this->search, function (Builder $query) {
                 $query->where('name', 'like', '%' . $this->search . '%')
                     ->orWhere('code', 'like', '%' . $this->search . '%')
@@ -186,7 +207,7 @@ new #[Title('Curricula Management')] class extends Component {
             <x-button
                 label="New Curriculum"
                 icon="o-plus"
-                wire:click="$dispatch('openModal', { component: 'admin.curricula.create-modal' })"
+                wire:click="redirectToCreate"
                 class="btn-primary"
                 responsive />
         </x-slot:actions>
@@ -230,51 +251,90 @@ new #[Title('Curricula Management')] class extends Component {
                 <tbody>
                     @forelse ($curricula as $curriculum)
                         <tr class="hover">
-                            <td>{{ $curriculum->id }}</td>
+                            <td class="font-mono text-sm">#{{ $curriculum->id }}</td>
                             <td>
                                 <div class="font-bold">{{ $curriculum->name }}</div>
-                                <div class="max-w-xs text-sm truncate opacity-70">{{ Str::limit($curriculum->description, 60) }}</div>
+                                @if($curriculum->description)
+                                    <div class="max-w-xs text-sm truncate opacity-70">
+                                        {{ Str::limit($curriculum->description, 60) }}
+                                    </div>
+                                @endif
                             </td>
-                            <td>
-                                <x-badge label="{{ $curriculum->code }}" color="info" />
+                            <td class="py-2">
+                                @if(!empty($curriculum->code))
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 font-mono">
+                                        {{ $curriculum->code }}
+                                    </span>
+                                @else
+                                    <span class="text-xs italic text-gray-400">No code</span>
+                                @endif
                             </td>
-                            <td>{{ $curriculum->subjects_count ?? 0 }}</td>
-                            <td>{{ $curriculum->program_enrollments_count ?? 0 }}</td>
+                            <td class="py-2">
+                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium {{ ($curriculum->subjects_count ?? 0) > 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600' }}">
+                                    {{ $curriculum->subjects_count ?? 0 }}
+                                </span>
+                            </td>
+                            <td class="py-2">
+                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium {{ ($curriculum->program_enrollments_count ?? 0) > 0 ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-600' }}">
+                                    {{ $curriculum->program_enrollments_count ?? 0 }}
+                                </span>
+                            </td>
                             <td class="text-right">
                                 <div class="flex justify-end gap-2">
-                                    <x-button
-                                        icon="o-eye"
-                                        wire:click="$dispatch('openModal', { component: 'admin.curricula.show-modal', arguments: { curriculumId: {{ $curriculum->id }} }})"
-                                        color="secondary"
-                                        size="sm"
-                                        tooltip="View"
-                                    />
-
-                                    <x-button
-                                        icon="o-pencil"
-                                        wire:click="$dispatch('openModal', { component: 'admin.curricula.edit-modal', arguments: { curriculumId: {{ $curriculum->id }} }})"
-                                        color="info"
-                                        size="sm"
-                                        tooltip="Edit"
-                                    />
-
-                                    <x-button
-                                        icon="o-trash"
+                                    <button
+                                        wire:click="redirectToShow({{ $curriculum->id }})"
+                                        class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
+                                        title="View"
+                                    >
+                                        👁️
+                                    </button>
+                                    <button
+                                        wire:click="redirectToEdit({{ $curriculum->id }})"
+                                        class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
+                                        title="Edit"
+                                    >
+                                        ✏️
+                                    </button>
+                                    <button
                                         wire:click="confirmDelete({{ $curriculum->id }})"
-                                        color="error"
-                                        size="sm"
-                                        tooltip="Delete"
-                                    />
+                                        class="p-2 text-red-600 bg-red-100 rounded-md hover:text-red-900 hover:bg-red-200"
+                                        title="Delete"
+                                    >
+                                        🗑️
+                                    </button>
                                 </div>
                             </td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="6" class="py-8 text-center">
-                                <div class="flex flex-col items-center justify-center gap-2">
-                                    <x-icon name="o-face-frown" class="w-16 h-16 text-gray-400" />
-                                    <h3 class="text-lg font-semibold text-gray-600">No curricula found</h3>
-                                    <p class="text-gray-500">Try modifying your filters or create a new curriculum</p>
+                            <td colspan="6" class="py-12 text-center">
+                                <div class="flex flex-col items-center justify-center gap-4">
+                                    <x-icon name="o-academic-cap" class="w-20 h-20 text-gray-300" />
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-600">No curricula found</h3>
+                                        <p class="mt-1 text-gray-500">
+                                            @if($search)
+                                                No curricula match your search criteria.
+                                            @else
+                                                Get started by creating your first curriculum.
+                                            @endif
+                                        </p>
+                                    </div>
+                                    @if($search)
+                                        <x-button
+                                            label="Clear Search"
+                                            wire:click="resetFilters"
+                                            color="secondary"
+                                            size="sm"
+                                        />
+                                    @else
+                                        <x-button
+                                            label="Create First Curriculum"
+                                            icon="o-plus"
+                                            wire:click="redirectToCreate"
+                                            color="primary"
+                                        />
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -287,6 +347,17 @@ new #[Title('Curricula Management')] class extends Component {
         <div class="mt-4">
             {{ $curricula->links() }}
         </div>
+
+        <!-- Results summary -->
+        @if($curricula->count() > 0)
+        <div class="pt-3 mt-4 text-sm text-gray-600 border-t">
+            Showing {{ $curricula->firstItem() ?? 0 }} to {{ $curricula->lastItem() ?? 0 }}
+            of {{ $curricula->total() }} curricula
+            @if($search)
+                (filtered from total)
+            @endif
+        </div>
+        @endif
     </x-card>
 
     <!-- Delete confirmation modal -->
@@ -325,7 +396,14 @@ new #[Title('Curricula Management')] class extends Component {
             <div>
                 <x-select
                     label="Items per page"
-                    :options="[10, 25, 50, 100]"
+                    :options="[
+                        ['id' => 10, 'name' => '10 per page'],
+                        ['id' => 25, 'name' => '25 per page'],
+                        ['id' => 50, 'name' => '50 per page'],
+                        ['id' => 100, 'name' => '100 per page']
+                    ]"
+                    option-value="id"
+                    option-label="name"
                     wire:model.live="perPage"
                 />
             </div>

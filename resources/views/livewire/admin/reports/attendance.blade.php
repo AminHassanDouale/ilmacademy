@@ -4,9 +4,12 @@ use App\Models\Session;
 use App\Models\Attendance;
 use App\Models\Subject;
 use App\Models\TeacherProfile;
+use App\Models\ChildProfile;
 use App\Models\AcademicYear;
 use App\Models\Curriculum;
+use App\Models\ProgramEnrollment;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 use Mary\Traits\Toast;
@@ -14,20 +17,29 @@ use Mary\Traits\Toast;
 new #[Title('Attendance Report')] class extends Component {
     use Toast;
 
+    // Filter properties
     public string $selectedAcademicYear = '';
     public string $selectedCurriculum = '';
     public string $selectedSubject = '';
     public string $selectedTeacher = '';
+    public string $selectedStudent = '';
     public string $attendanceStatus = '';
     public string $dateFrom = '';
     public string $dateTo = '';
     public string $reportFormat = 'table';
+    public string $reportType = 'overview'; // overview, teacher, student
 
     public array $attendanceStatuses = [
         'present' => 'Present',
         'absent' => 'Absent',
         'late' => 'Late',
         'excused' => 'Excused'
+    ];
+
+    public array $reportTypes = [
+        'overview' => 'Overview Report',
+        'teacher' => 'Teacher Report',
+        'student' => 'Student Report'
     ];
 
     public function mount(): void
@@ -63,6 +75,28 @@ new #[Title('Attendance Report')] class extends Component {
         return TeacherProfile::with('user')->orderBy('id')->get();
     }
 
+    public function getStudentsProperty(): Collection
+    {
+        $query = ChildProfile::with(['programEnrollments.academicYear', 'programEnrollments.curriculum'])
+            ->orderBy('first_name');
+
+        // Filter students by academic year
+        if ($this->selectedAcademicYear) {
+            $query->whereHas('programEnrollments', function($q) {
+                $q->where('academic_year_id', $this->selectedAcademicYear);
+            });
+        }
+
+        // Filter students by curriculum
+        if ($this->selectedCurriculum) {
+            $query->whereHas('programEnrollments', function($q) {
+                $q->where('curriculum_id', $this->selectedCurriculum);
+            });
+        }
+
+        return $query->get();
+    }
+
     public function getAttendanceDataProperty(): Collection
     {
         $query = Attendance::with([
@@ -82,11 +116,9 @@ new #[Title('Attendance Report')] class extends Component {
         // Filter by curriculum
         if ($this->selectedCurriculum) {
             $query->where(function($q) {
-                // Filter by session subject curriculum
                 $q->whereHas('session.subject', function($subQuery) {
                     $subQuery->where('curriculum_id', $this->selectedCurriculum);
                 })
-                // OR filter by student enrollment curriculum
                 ->orWhereHas('childProfile.programEnrollments', function($subQuery) {
                     $subQuery->where('curriculum_id', $this->selectedCurriculum);
                 });
@@ -107,6 +139,11 @@ new #[Title('Attendance Report')] class extends Component {
             });
         }
 
+        // Filter by student
+        if ($this->selectedStudent) {
+            $query->where('child_profile_id', $this->selectedStudent);
+        }
+
         // Filter by attendance status
         if ($this->attendanceStatus) {
             $query->where('status', $this->attendanceStatus);
@@ -115,11 +152,11 @@ new #[Title('Attendance Report')] class extends Component {
         // Filter by date range
         if ($this->dateFrom && $this->dateTo) {
             $query->whereHas('session', function($q) {
-                $q->whereBetween('start_time', [$this->dateFrom, $this->dateTo]);
+                $q->whereBetween('start_time', [$this->dateFrom . ' 00:00:00', $this->dateTo . ' 23:59:59']);
             });
         }
 
-        return $query->get();
+        return $query->orderBy('created_at', 'desc')->get();
     }
 
     public function getStatisticsProperty(): array
@@ -134,8 +171,9 @@ new #[Title('Attendance Report')] class extends Component {
             'excused_count' => $attendances->where('status', 'excused')->count(),
             'attendance_rate' => 0,
             'subject_breakdown' => [],
+            'teacher_breakdown' => [],
+            'student_breakdown' => [],
             'daily_breakdown' => [],
-            'student_attendance_rates' => []
         ];
 
         // Calculate attendance rate
@@ -161,6 +199,42 @@ new #[Title('Attendance Report')] class extends Component {
             $stats['subject_breakdown'][$subjectName][$attendance->status]++;
         }
 
+        // Teacher breakdown
+        foreach ($attendances as $attendance) {
+            $teacherName = $attendance->session->teacherProfile->user->name ?? 'Unknown';
+            if (!isset($stats['teacher_breakdown'][$teacherName])) {
+                $stats['teacher_breakdown'][$teacherName] = [
+                    'total' => 0,
+                    'present' => 0,
+                    'absent' => 0,
+                    'late' => 0,
+                    'excused' => 0,
+                    'teacher_id' => $attendance->session->teacherProfile->id ?? null
+                ];
+            }
+
+            $stats['teacher_breakdown'][$teacherName]['total']++;
+            $stats['teacher_breakdown'][$teacherName][$attendance->status]++;
+        }
+
+        // Student breakdown
+        foreach ($attendances as $attendance) {
+            $studentName = $attendance->childProfile->full_name ?? 'Unknown';
+            if (!isset($stats['student_breakdown'][$studentName])) {
+                $stats['student_breakdown'][$studentName] = [
+                    'total' => 0,
+                    'present' => 0,
+                    'absent' => 0,
+                    'late' => 0,
+                    'excused' => 0,
+                    'student_id' => $attendance->childProfile->id ?? null
+                ];
+            }
+
+            $stats['student_breakdown'][$studentName]['total']++;
+            $stats['student_breakdown'][$studentName][$attendance->status]++;
+        }
+
         // Daily breakdown
         foreach ($attendances as $attendance) {
             $date = $attendance->session->start_time->format('Y-m-d');
@@ -178,7 +252,44 @@ new #[Title('Attendance Report')] class extends Component {
             $stats['daily_breakdown'][$date][$attendance->status]++;
         }
 
-        // Student attendance rates
+        return $stats;
+    }
+
+    public function getTeacherReportProperty(): array
+    {
+        if (!$this->selectedTeacher) {
+            return [];
+        }
+
+        $attendances = $this->attendanceData->where('session.teacher_profile_id', $this->selectedTeacher);
+
+        $report = [
+            'teacher_info' => TeacherProfile::with('user')->find($this->selectedTeacher),
+            'total_sessions' => $attendances->pluck('session.id')->unique()->count(),
+            'total_attendance_records' => $attendances->count(),
+            'subjects_taught' => [],
+            'student_performance' => [],
+            'daily_summary' => []
+        ];
+
+        // Subjects taught breakdown
+        foreach ($attendances as $attendance) {
+            $subjectName = $attendance->session->subject->name ?? 'Unknown';
+            if (!isset($report['subjects_taught'][$subjectName])) {
+                $report['subjects_taught'][$subjectName] = [
+                    'total' => 0,
+                    'present' => 0,
+                    'absent' => 0,
+                    'late' => 0,
+                    'excused' => 0
+                ];
+            }
+
+            $report['subjects_taught'][$subjectName]['total']++;
+            $report['subjects_taught'][$subjectName][$attendance->status]++;
+        }
+
+        // Student performance in teacher's classes
         $studentAttendances = $attendances->groupBy('child_profile_id');
         foreach ($studentAttendances as $studentId => $studentRecords) {
             $studentName = $studentRecords->first()->childProfile->full_name ?? 'Unknown';
@@ -186,7 +297,7 @@ new #[Title('Attendance Report')] class extends Component {
             $presentSessions = $studentRecords->whereIn('status', ['present', 'late'])->count();
             $rate = $totalSessions > 0 ? round(($presentSessions / $totalSessions) * 100, 2) : 0;
 
-            $stats['student_attendance_rates'][] = [
+            $report['student_performance'][] = [
                 'student_name' => $studentName,
                 'total_sessions' => $totalSessions,
                 'present_sessions' => $presentSessions,
@@ -195,11 +306,64 @@ new #[Title('Attendance Report')] class extends Component {
         }
 
         // Sort students by attendance rate
-        usort($stats['student_attendance_rates'], function($a, $b) {
+        usort($report['student_performance'], function($a, $b) {
             return $b['attendance_rate'] <=> $a['attendance_rate'];
         });
 
-        return $stats;
+        return $report;
+    }
+
+    public function getStudentReportProperty(): array
+    {
+        if (!$this->selectedStudent) {
+            return [];
+        }
+
+        $attendances = $this->attendanceData->where('child_profile_id', $this->selectedStudent);
+
+        $report = [
+            'student_info' => ChildProfile::with(['programEnrollments.academicYear', 'programEnrollments.curriculum'])->find($this->selectedStudent),
+            'total_sessions_attended' => $attendances->count(),
+            'subjects_performance' => [],
+            'teachers_performance' => [],
+            'monthly_summary' => []
+        ];
+
+        // Subject performance
+        foreach ($attendances as $attendance) {
+            $subjectName = $attendance->session->subject->name ?? 'Unknown';
+            if (!isset($report['subjects_performance'][$subjectName])) {
+                $report['subjects_performance'][$subjectName] = [
+                    'total' => 0,
+                    'present' => 0,
+                    'absent' => 0,
+                    'late' => 0,
+                    'excused' => 0
+                ];
+            }
+
+            $report['subjects_performance'][$subjectName]['total']++;
+            $report['subjects_performance'][$subjectName][$attendance->status]++;
+        }
+
+        // Teacher performance
+        foreach ($attendances as $attendance) {
+            $teacherName = $attendance->session->teacherProfile->user->name ?? 'Unknown';
+            if (!isset($report['teachers_performance'][$teacherName])) {
+                $report['teachers_performance'][$teacherName] = [
+                    'total' => 0,
+                    'present' => 0,
+                    'absent' => 0,
+                    'late' => 0,
+                    'excused' => 0
+                ];
+            }
+
+            $report['teachers_performance'][$teacherName]['total']++;
+            $report['teachers_performance'][$teacherName][$attendance->status]++;
+        }
+
+        return $report;
     }
 
     public function exportReport(): void
@@ -213,31 +377,61 @@ new #[Title('Attendance Report')] class extends Component {
         $this->selectedCurriculum = '';
         $this->selectedSubject = '';
         $this->selectedTeacher = '';
+        $this->selectedStudent = '';
         $this->attendanceStatus = '';
         $this->dateFrom = now()->startOfMonth()->format('Y-m-d');
         $this->dateTo = now()->endOfMonth()->format('Y-m-d');
+        $this->reportType = 'overview';
         $this->success('Filters reset successfully.');
+    }
+
+    // Update handlers
+    public function updatedReportType(): void
+    {
+        // Reset teacher and student selections when report type changes
+        if ($this->reportType !== 'teacher') {
+            $this->selectedTeacher = '';
+        }
+        if ($this->reportType !== 'student') {
+            $this->selectedStudent = '';
+        }
+    }
+
+    public function updatedSelectedCurriculum(): void
+    {
+        // Reset subject and student when curriculum changes
+        $this->selectedSubject = '';
+        $this->selectedStudent = '';
     }
 
     public function with(): array
     {
-        return [];
+        return [
+            'attendanceData' => $this->attendanceData,
+            'statistics' => $this->statistics,
+            'teacherReport' => $this->teacherReport,
+            'studentReport' => $this->studentReport,
+        ];
     }
 };?>
 
 <div>
     <!-- Page header -->
     <x-header title="Attendance Report" separator>
+        <x-slot:subtitle>
+            {{ $reportTypes[$reportType] }}
+        </x-slot:subtitle>
+
         <x-slot:middle>
             <div class="flex items-center space-x-4">
                 <x-badge
-                    label="{{ $this->attendanceData->count() }} Records"
+                    label="{{ $attendanceData->count() }} Records"
                     color="primary"
                     class="badge-lg"
                 />
                 <x-badge
-                    label="{{ $this->statistics['attendance_rate'] }}% Attendance Rate"
-                    color="{{ $this->statistics['attendance_rate'] >= 80 ? 'success' : ($this->statistics['attendance_rate'] >= 60 ? 'warning' : 'error') }}"
+                    label="{{ $statistics['attendance_rate'] }}% Attendance Rate"
+                    color="{{ $statistics['attendance_rate'] >= 80 ? 'success' : ($statistics['attendance_rate'] >= 60 ? 'warning' : 'error') }}"
                     class="badge-lg"
                 />
             </div>
@@ -260,6 +454,44 @@ new #[Title('Attendance Report')] class extends Component {
             </div>
         </x-slot:actions>
     </x-header>
+
+    <!-- Report Type Selection -->
+    <x-card title="Report Configuration" class="mb-6">
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div>
+                <label class="block mb-2 text-sm font-medium text-gray-700">Report Type</label>
+                <select wire:model.live="reportType" class="w-full select select-bordered">
+                    @foreach($reportTypes as $value => $label)
+                        <option value="{{ $value }}">{{ $label }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            @if($reportType === 'teacher')
+                <div>
+                    <label class="block mb-2 text-sm font-medium text-gray-700">Select Teacher <span class="text-red-500">*</span></label>
+                    <select wire:model.live="selectedTeacher" class="w-full select select-bordered">
+                        <option value="">Choose a Teacher</option>
+                        @foreach($this->teachers as $teacher)
+                            <option value="{{ $teacher->id }}">{{ $teacher->user->name ?? 'Unknown' }}</option>
+                        @endforeach
+                    </select>
+                </div>
+            @endif
+
+            @if($reportType === 'student')
+                <div>
+                    <label class="block mb-2 text-sm font-medium text-gray-700">Select Student <span class="text-red-500">*</span></label>
+                    <select wire:model.live="selectedStudent" class="w-full select select-bordered">
+                        <option value="">Choose a Student</option>
+                        @foreach($this->students as $student)
+                            <option value="{{ $student->id }}">{{ $student->full_name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+            @endif
+        </div>
+    </x-card>
 
     <!-- Filters -->
     <x-card title="Report Filters" class="mb-6">
@@ -294,15 +526,27 @@ new #[Title('Attendance Report')] class extends Component {
                 </select>
             </div>
 
-            <div>
-                <label class="block mb-2 text-sm font-medium text-gray-700">Teacher</label>
-                <select wire:model.live="selectedTeacher" class="w-full select select-bordered">
-                    <option value="">All Teachers</option>
-                    @foreach($this->teachers as $teacher)
-                        <option value="{{ $teacher->id }}">{{ $teacher->user->name ?? 'Unknown' }}</option>
-                    @endforeach
-                </select>
-            </div>
+            @if($reportType === 'overview')
+                <div>
+                    <label class="block mb-2 text-sm font-medium text-gray-700">Teacher</label>
+                    <select wire:model.live="selectedTeacher" class="w-full select select-bordered">
+                        <option value="">All Teachers</option>
+                        @foreach($this->teachers as $teacher)
+                            <option value="{{ $teacher->id }}">{{ $teacher->user->name ?? 'Unknown' }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block mb-2 text-sm font-medium text-gray-700">Student</label>
+                    <select wire:model.live="selectedStudent" class="w-full select select-bordered">
+                        <option value="">All Students</option>
+                        @foreach($this->students as $student)
+                            <option value="{{ $student->id }}">{{ $student->full_name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+            @endif
 
             <div>
                 <label class="block mb-2 text-sm font-medium text-gray-700">Status</label>
@@ -342,13 +586,11 @@ new #[Title('Attendance Report')] class extends Component {
         <x-card>
             <div class="flex items-center">
                 <div class="flex items-center justify-center w-12 h-12 bg-blue-500 rounded-lg">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
-                    </svg>
+                    <x-icon name="o-clipboard-document-list" class="w-6 h-6 text-white" />
                 </div>
                 <div class="ml-4">
                     <p class="text-sm font-medium text-gray-500">Total Records</p>
-                    <p class="text-2xl font-bold text-gray-900">{{ $this->statistics['total_attendances'] }}</p>
+                    <p class="text-2xl font-bold text-gray-900">{{ $statistics['total_attendances'] }}</p>
                 </div>
             </div>
         </x-card>
@@ -356,13 +598,11 @@ new #[Title('Attendance Report')] class extends Component {
         <x-card>
             <div class="flex items-center">
                 <div class="flex items-center justify-center w-12 h-12 bg-green-500 rounded-lg">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                    </svg>
+                    <x-icon name="o-check-circle" class="w-6 h-6 text-white" />
                 </div>
                 <div class="ml-4">
                     <p class="text-sm font-medium text-gray-500">Present</p>
-                    <p class="text-2xl font-bold text-gray-900">{{ $this->statistics['present_count'] }}</p>
+                    <p class="text-2xl font-bold text-gray-900">{{ $statistics['present_count'] }}</p>
                 </div>
             </div>
         </x-card>
@@ -370,13 +610,11 @@ new #[Title('Attendance Report')] class extends Component {
         <x-card>
             <div class="flex items-center">
                 <div class="flex items-center justify-center w-12 h-12 bg-red-500 rounded-lg">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
+                    <x-icon name="o-x-circle" class="w-6 h-6 text-white" />
                 </div>
                 <div class="ml-4">
                     <p class="text-sm font-medium text-gray-500">Absent</p>
-                    <p class="text-2xl font-bold text-gray-900">{{ $this->statistics['absent_count'] }}</p>
+                    <p class="text-2xl font-bold text-gray-900">{{ $statistics['absent_count'] }}</p>
                 </div>
             </div>
         </x-card>
@@ -384,13 +622,11 @@ new #[Title('Attendance Report')] class extends Component {
         <x-card>
             <div class="flex items-center">
                 <div class="flex items-center justify-center w-12 h-12 bg-yellow-500 rounded-lg">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                    </svg>
+                    <x-icon name="o-clock" class="w-6 h-6 text-white" />
                 </div>
                 <div class="ml-4">
                     <p class="text-sm font-medium text-gray-500">Late</p>
-                    <p class="text-2xl font-bold text-gray-900">{{ $this->statistics['late_count'] }}</p>
+                    <p class="text-2xl font-bold text-gray-900">{{ $statistics['late_count'] }}</p>
                 </div>
             </div>
         </x-card>
@@ -398,29 +634,204 @@ new #[Title('Attendance Report')] class extends Component {
         <x-card>
             <div class="flex items-center">
                 <div class="flex items-center justify-center w-12 h-12 bg-purple-500 rounded-lg">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                    </svg>
+                    <x-icon name="o-document-check" class="w-6 h-6 text-white" />
                 </div>
                 <div class="ml-4">
                     <p class="text-sm font-medium text-gray-500">Excused</p>
-                    <p class="text-2xl font-bold text-gray-900">{{ $this->statistics['excused_count'] }}</p>
+                    <p class="text-2xl font-bold text-gray-900">{{ $statistics['excused_count'] }}</p>
                 </div>
             </div>
         </x-card>
     </div>
 
-    @if($reportFormat === 'summary')
+    @if($reportType === 'teacher' && $selectedTeacher && !empty($teacherReport))
+        <!-- Teacher Report -->
+        <x-card title="Teacher Report: {{ $teacherReport['teacher_info']->user->name ?? 'Unknown' }}" class="mb-6">
+            <div class="grid grid-cols-1 gap-4 mb-6 md:grid-cols-3">
+                <div class="p-4 border rounded-lg">
+                    <h3 class="font-semibold text-blue-600">Total Sessions Conducted</h3>
+                    <p class="text-2xl font-bold">{{ $teacherReport['total_sessions'] }}</p>
+                </div>
+                <div class="p-4 border rounded-lg">
+                    <h3 class="font-semibold text-green-600">Total Attendance Records</h3>
+                    <p class="text-2xl font-bold">{{ $teacherReport['total_attendance_records'] }}</p>
+                </div>
+                <div class="p-4 border rounded-lg">
+                    <h3 class="font-semibold text-purple-600">Subjects Taught</h3>
+                    <p class="text-2xl font-bold">{{ count($teacherReport['subjects_taught']) }}</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <!-- Subjects Taught -->
+                <div>
+                    <h3 class="mb-3 text-lg font-semibold">Subjects Performance</h3>
+                    @foreach($teacherReport['subjects_taught'] as $subject => $data)
+                        <div class="p-3 mb-3 border rounded-lg">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="font-semibold">{{ $subject }}</span>
+                                <span class="text-sm text-gray-600">{{ $data['total'] }} records</span>
+                            </div>
+                            <div class="grid grid-cols-4 gap-2 text-sm">
+                                <div class="text-center">
+                                    <div class="font-semibold text-green-600">{{ $data['present'] }}</div>
+                                    <div class="text-xs text-gray-500">Present</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="font-semibold text-red-600">{{ $data['absent'] }}</div>
+                                    <div class="text-xs text-gray-500">Absent</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="font-semibold text-yellow-600">{{ $data['late'] }}</div>
+                                    <div class="text-xs text-gray-500">Late</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="font-semibold text-purple-600">{{ $data['excused'] }}</div>
+                                    <div class="text-xs text-gray-500">Excused</div>
+                                </div>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+
+                <!-- Student Performance in Teacher's Classes -->
+                <div>
+                    <h3 class="mb-3 text-lg font-semibold">Student Performance</h3>
+                    <div class="space-y-2 max-h-96 overflow-y-auto">
+                        @foreach(array_slice($teacherReport['student_performance'], 0, 20) as $student)
+                            <div class="flex items-center justify-between p-3 border rounded-lg">
+                                <div>
+                                    <div class="font-semibold">{{ $student['student_name'] }}</div>
+                                    <div class="text-sm text-gray-600">
+                                        {{ $student['present_sessions'] }}/{{ $student['total_sessions'] }} sessions
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-lg font-bold {{ $student['attendance_rate'] >= 80 ? 'text-green-600' : ($student['attendance_rate'] >= 60 ? 'text-yellow-600' : 'text-red-600') }}">
+                                        {{ $student['attendance_rate'] }}%
+                                    </div>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            </div>
+        </x-card>
+    @endif
+
+    @if($reportType === 'student' && $selectedStudent && !empty($studentReport))
+        <!-- Student Report -->
+        <x-card title="Student Report: {{ $studentReport['student_info']->full_name ?? 'Unknown' }}" class="mb-6">
+            <div class="grid grid-cols-1 gap-4 mb-6 md:grid-cols-3">
+                <div class="p-4 border rounded-lg">
+                    <h3 class="font-semibold text-blue-600">Total Sessions Attended</h3>
+                    <p class="text-2xl font-bold">{{ $studentReport['total_sessions_attended'] }}</p>
+                </div>
+                <div class="p-4 border rounded-lg">
+                    <h3 class="font-semibold text-green-600">Subjects Enrolled</h3>
+                    <p class="text-2xl font-bold">{{ count($studentReport['subjects_performance']) }}</p>
+                </div>
+                <div class="p-4 border rounded-lg">
+                    <h3 class="font-semibold text-purple-600">Teachers</h3>
+                    <p class="text-2xl font-bold">{{ count($studentReport['teachers_performance']) }}</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <!-- Subject Performance -->
+                <div>
+                    <h3 class="mb-3 text-lg font-semibold">Performance by Subject</h3>
+                    @foreach($studentReport['subjects_performance'] as $subject => $data)
+                        @php
+                            $attendanceRate = $data['total'] > 0 ? round((($data['present'] + $data['late']) / $data['total']) * 100, 1) : 0;
+                        @endphp
+                        <div class="p-3 mb-3 border rounded-lg">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="font-semibold">{{ $subject }}</span>
+                                <span class="font-bold {{ $attendanceRate >= 80 ? 'text-green-600' : ($attendanceRate >= 60 ? 'text-yellow-600' : 'text-red-600') }}">
+                                    {{ $attendanceRate }}%
+                                </span>
+                            </div>
+                            <div class="grid grid-cols-4 gap-2 text-sm">
+                                <div class="text-center">
+                                    <div class="font-semibold text-green-600">{{ $data['present'] }}</div>
+                                    <div class="text-xs text-gray-500">Present</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="font-semibold text-red-600">{{ $data['absent'] }}</div>
+                                    <div class="text-xs text-gray-500">Absent</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="font-semibold text-yellow-600">{{ $data['late'] }}</div>
+                                    <div class="text-xs text-gray-500">Late</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="font-semibold text-purple-600">{{ $data['excused'] }}</div>
+                                    <div class="text-xs text-gray-500">Excused</div>
+                                </div>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+
+                <!-- Teacher Performance -->
+                <div>
+                    <h3 class="mb-3 text-lg font-semibold">Performance by Teacher</h3>
+                    @foreach($studentReport['teachers_performance'] as $teacher => $data)
+                        @php
+                            $attendanceRate = $data['total'] > 0 ? round((($data['present'] + $data['late']) / $data['total']) * 100, 1) : 0;
+                        @endphp
+                        <div class="p-3 mb-3 border rounded-lg">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="font-semibold">{{ $teacher }}</span>
+                                <span class="font-bold {{ $attendanceRate >= 80 ? 'text-green-600' : ($attendanceRate >= 60 ? 'text-yellow-600' : 'text-red-600') }}">
+                                    {{ $attendanceRate }}%
+                                </span>
+                            </div>
+                            <div class="grid grid-cols-4 gap-2 text-sm">
+                                <div class="text-center">
+                                    <div class="font-semibold text-green-600">{{ $data['present'] }}</div>
+                                    <div class="text-xs text-gray-500">Present</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="font-semibold text-red-600">{{ $data['absent'] }}</div>
+                                    <div class="text-xs text-gray-500">Absent</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="font-semibold text-yellow-600">{{ $data['late'] }}</div>
+                                    <div class="text-xs text-gray-500">Late</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="font-semibold text-purple-600">{{ $data['excused'] }}</div>
+                                    <div class="text-xs text-gray-500">Excused</div>
+                                </div>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        </x-card>
+    @endif
+
+    @if($reportFormat === 'summary' && $reportType === 'overview')
         <!-- Summary View -->
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <!-- Subject Breakdown -->
             <x-card title="Attendance by Subject">
                 <div class="space-y-3">
-                    @foreach($this->statistics['subject_breakdown'] as $subject => $data)
+                    @foreach($statistics['subject_breakdown'] as $subject => $data)
+                        @php
+                            $attendanceRate = $data['total'] > 0 ? round((($data['present'] + $data['late']) / $data['total']) * 100, 1) : 0;
+                        @endphp
                         <div class="p-3 border rounded-lg">
                             <div class="flex items-center justify-between mb-2">
                                 <span class="font-semibold">{{ $subject }}</span>
-                                <span class="text-sm text-gray-600">{{ $data['total'] }} sessions</span>
+                                <div class="flex items-center space-x-2">
+                                    <span class="text-sm text-gray-600">{{ $data['total'] }} sessions</span>
+                                    <span class="font-bold {{ $attendanceRate >= 80 ? 'text-green-600' : ($attendanceRate >= 60 ? 'text-yellow-600' : 'text-red-600') }}">
+                                        {{ $attendanceRate }}%
+                                    </span>
+                                </div>
                             </div>
                             <div class="grid grid-cols-4 gap-2 text-sm">
                                 <div class="text-center">
@@ -445,20 +856,39 @@ new #[Title('Attendance Report')] class extends Component {
                 </div>
             </x-card>
 
-            <!-- Top Students by Attendance -->
-            <x-card title="Top Students by Attendance Rate">
+            <!-- Teacher Breakdown -->
+            <x-card title="Attendance by Teacher">
                 <div class="space-y-3">
-                    @foreach(array_slice($this->statistics['student_attendance_rates'], 0, 10) as $student)
-                        <div class="flex items-center justify-between p-3 border rounded-lg">
-                            <div>
-                                <div class="font-semibold">{{ $student['student_name'] }}</div>
-                                <div class="text-sm text-gray-600">
-                                    {{ $student['present_sessions'] }}/{{ $student['total_sessions'] }} sessions
+                    @foreach($statistics['teacher_breakdown'] as $teacher => $data)
+                        @php
+                            $attendanceRate = $data['total'] > 0 ? round((($data['present'] + $data['late']) / $data['total']) * 100, 1) : 0;
+                        @endphp
+                        <div class="p-3 border rounded-lg">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="font-semibold">{{ $teacher }}</span>
+                                <div class="flex items-center space-x-2">
+                                    <span class="text-sm text-gray-600">{{ $data['total'] }} records</span>
+                                    <span class="font-bold {{ $attendanceRate >= 80 ? 'text-green-600' : ($attendanceRate >= 60 ? 'text-yellow-600' : 'text-red-600') }}">
+                                        {{ $attendanceRate }}%
+                                    </span>
                                 </div>
                             </div>
-                            <div class="text-right">
-                                <div class="text-lg font-bold {{ $student['attendance_rate'] >= 80 ? 'text-green-600' : ($student['attendance_rate'] >= 60 ? 'text-yellow-600' : 'text-red-600') }}">
-                                    {{ $student['attendance_rate'] }}%
+                            <div class="grid grid-cols-4 gap-2 text-sm">
+                                <div class="text-center">
+                                    <div class="font-semibold text-green-600">{{ $data['present'] }}</div>
+                                    <div class="text-xs text-gray-500">Present</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="font-semibold text-red-600">{{ $data['absent'] }}</div>
+                                    <div class="text-xs text-gray-500">Absent</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="font-semibold text-yellow-600">{{ $data['late'] }}</div>
+                                    <div class="text-xs text-gray-500">Late</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="font-semibold text-purple-600">{{ $data['excused'] }}</div>
+                                    <div class="text-xs text-gray-500">Excused</div>
                                 </div>
                             </div>
                         </div>
@@ -477,7 +907,7 @@ new #[Title('Attendance Report')] class extends Component {
                         <div class="flex items-center space-x-2">
                             <div class="w-32 h-3 bg-gray-200 rounded-full">
                                 @php
-                                    $percentage = $this->statistics['total_attendances'] > 0 ? ($this->statistics['present_count'] / $this->statistics['total_attendances']) * 100 : 0;
+                                    $percentage = $statistics['total_attendances'] > 0 ? ($statistics['present_count'] / $statistics['total_attendances']) * 100 : 0;
                                 @endphp
                                 <div class="h-3 bg-green-500 rounded-full" style="width: {{ $percentage }}%"></div>
                             </div>
@@ -490,7 +920,7 @@ new #[Title('Attendance Report')] class extends Component {
                         <div class="flex items-center space-x-2">
                             <div class="w-32 h-3 bg-gray-200 rounded-full">
                                 @php
-                                    $percentage = $this->statistics['total_attendances'] > 0 ? ($this->statistics['absent_count'] / $this->statistics['total_attendances']) * 100 : 0;
+                                    $percentage = $statistics['total_attendances'] > 0 ? ($statistics['absent_count'] / $statistics['total_attendances']) * 100 : 0;
                                 @endphp
                                 <div class="h-3 bg-red-500 rounded-full" style="width: {{ $percentage }}%"></div>
                             </div>
@@ -503,7 +933,7 @@ new #[Title('Attendance Report')] class extends Component {
                         <div class="flex items-center space-x-2">
                             <div class="w-32 h-3 bg-gray-200 rounded-full">
                                 @php
-                                    $percentage = $this->statistics['total_attendances'] > 0 ? ($this->statistics['late_count'] / $this->statistics['total_attendances']) * 100 : 0;
+                                    $percentage = $statistics['total_attendances'] > 0 ? ($statistics['late_count'] / $statistics['total_attendances']) * 100 : 0;
                                 @endphp
                                 <div class="h-3 bg-yellow-500 rounded-full" style="width: {{ $percentage }}%"></div>
                             </div>
@@ -516,7 +946,7 @@ new #[Title('Attendance Report')] class extends Component {
                         <div class="flex items-center space-x-2">
                             <div class="w-32 h-3 bg-gray-200 rounded-full">
                                 @php
-                                    $percentage = $this->statistics['total_attendances'] > 0 ? ($this->statistics['excused_count'] / $this->statistics['total_attendances']) * 100 : 0;
+                                    $percentage = $statistics['total_attendances'] > 0 ? ($statistics['excused_count'] / $statistics['total_attendances']) * 100 : 0;
                                 @endphp
                                 <div class="h-3 bg-purple-500 rounded-full" style="width: {{ $percentage }}%"></div>
                             </div>
@@ -529,7 +959,7 @@ new #[Title('Attendance Report')] class extends Component {
             <!-- Daily Attendance Trend -->
             <x-card title="Daily Attendance Trend">
                 <div class="space-y-2">
-                    @foreach(array_slice($this->statistics['daily_breakdown'], -7, 7, true) as $date => $data)
+                    @foreach(array_slice($statistics['daily_breakdown'], -7, 7, true) as $date => $data)
                         <div class="flex items-center justify-between p-2 border rounded">
                             <span class="text-sm font-medium">{{ \Carbon\Carbon::parse($date)->format('M d, Y') }}</span>
                             <div class="flex items-center space-x-2">
@@ -550,66 +980,87 @@ new #[Title('Attendance Report')] class extends Component {
     @else
         <!-- Table View -->
         <x-card title="Attendance Details">
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">Student</th>
-                            <th class="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">Subject</th>
-                            <th class="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">Teacher</th>
-                            <th class="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">Date</th>
-                            <th class="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">Status</th>
-                            <th class="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">Notes</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        @foreach($this->attendanceData as $attendance)
-                            <tr class="hover:bg-gray-50">
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <div class="flex items-center">
-                                        <div class="flex items-center justify-center w-8 h-8 bg-blue-500 rounded-full">
-                                            <span class="text-xs font-semibold text-white">
-                                                {{ strtoupper(substr($attendance->childProfile->full_name ?? 'UK', 0, 2)) }}
-                                            </span>
-                                        </div>
-                                        <div class="ml-3">
-                                            <div class="text-sm font-medium text-gray-900">
-                                                {{ $attendance->childProfile->full_name ?? 'Unknown' }}
+            @if($attendanceData->count() > 0)
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">Student</th>
+                                <th class="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">Subject</th>
+                                <th class="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">Teacher</th>
+                                <th class="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">Date & Time</th>
+                                <th class="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">Status</th>
+                                <th class="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">Remarks</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            @foreach($attendanceData as $attendance)
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="flex items-center">
+                                            <div class="flex items-center justify-center w-8 h-8 bg-blue-500 rounded-full">
+                                                <span class="text-xs font-semibold text-white">
+                                                    {{ strtoupper(substr($attendance->childProfile->full_name ?? 'UK', 0, 2)) }}
+                                                </span>
+                                            </div>
+                                            <div class="ml-3">
+                                                <div class="text-sm font-medium text-gray-900">
+                                                    {{ $attendance->childProfile->full_name ?? 'Unknown' }}
+                                                </div>
+                                                <div class="text-sm text-gray-500">
+                                                    ID: {{ $attendance->childProfile->id ?? 'N/A' }}
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <div class="text-sm text-gray-900">{{ $attendance->session->subject->name ?? 'Unknown' }}</div>
-                                    <div class="text-sm text-gray-500">{{ $attendance->session->subject->code ?? '' }}</div>
-                                </td>
-                                <td class="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">
-                                    {{ $attendance->session->teacherProfile->user->name ?? 'Unknown' }}
-                                </td>
-                                <td class="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">
-                                    {{ $attendance->session->start_time->format('M d, Y H:i') }}
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <x-badge
-                                        label="{{ ucfirst($attendance->status) }}"
-                                        color="{{ match($attendance->status) {
-                                            'present' => 'success',
-                                            'late' => 'warning',
-                                            'absent' => 'error',
-                                            'excused' => 'info',
-                                            default => 'ghost'
-                                        } }}"
-                                        class="badge-sm"
-                                    />
-                                </td>
-                                <td class="px-6 py-4 text-sm text-gray-500">
-                                    {{ $attendance->remarks ?? '-' }}
-                                </td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            </div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="text-sm text-gray-900">{{ $attendance->session->subject->name ?? 'Unknown' }}</div>
+                                        <div class="text-sm text-gray-500">{{ $attendance->session->subject->code ?? '' }}</div>
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">
+                                        {{ $attendance->session->teacherProfile->user->name ?? 'Unknown' }}
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">
+                                        <div>{{ $attendance->session->start_time->format('M d, Y') }}</div>
+                                        <div class="text-xs text-gray-500">{{ $attendance->session->start_time->format('H:i A') }}</div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <x-badge
+                                            label="{{ ucfirst($attendance->status) }}"
+                                            color="{{ match($attendance->status) {
+                                                'present' => 'success',
+                                                'late' => 'warning',
+                                                'absent' => 'error',
+                                                'excused' => 'info',
+                                                default => 'ghost'
+                                            } }}"
+                                            class="badge-sm"
+                                        />
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-gray-500">
+                                        {{ $attendance->remarks ?? '-' }}
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+
+                @if($attendanceData->count() >= 50)
+                    <div class="p-4 mt-4 text-center bg-yellow-50 rounded-lg">
+                        <p class="text-sm text-yellow-700">
+                            <x-icon name="o-information-circle" class="inline w-4 h-4 mr-1" />
+                            Showing first 50 records. Use filters to narrow down results for better performance.
+                        </p>
+                    </div>
+                @endif
+            @else
+                <div class="py-12 text-center">
+                    <x-icon name="o-document-magnifying-glass" class="w-12 h-12 mx-auto text-gray-400" />
+                    <h3 class="mt-2 text-sm font-medium text-gray-900">No attendance records found</h3>
+                    <p class="mt-1 text-sm text-gray-500">Try adjusting your filters to find attendance records.</p>
+                </div>
+            @endif
         </x-card>
     @endif
 </div>

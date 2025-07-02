@@ -21,15 +21,21 @@ new #[Title('Create Invoice')] class extends Component {
     public ?int $paymentPlanId = null;
     public string $amount = '';
     public ?string $dueDate = null;
-    public string $status = 'Unpaid';
-    public ?string $paymentMethod = null;
-    public ?string $reference = null;
+    public string $status = Invoice::STATUS_PENDING; // Use model constant and set default
+    public ?string $description = null; // Add description field
     public ?string $notes = null;
     public string $invoiceNumber = '';
 
-    // Options
-    protected array $validStatuses = ['Paid', 'Unpaid', 'Overdue', 'Cancelled'];
-    protected array $validPaymentMethods = ['Credit Card', 'Bank Transfer', 'Cash', 'Check', 'Other'];
+    // Options - Use Invoice model constants
+    protected array $validStatuses = [
+        Invoice::STATUS_DRAFT,
+        Invoice::STATUS_SENT,
+        Invoice::STATUS_PENDING,
+        Invoice::STATUS_PARTIALLY_PAID,
+        Invoice::STATUS_PAID,
+        Invoice::STATUS_OVERDUE,
+        Invoice::STATUS_CANCELLED,
+    ];
 
     // Mount the component
     public function mount(?int $programEnrollmentId = null): void
@@ -46,8 +52,8 @@ new #[Title('Create Invoice')] class extends Component {
             $this->loadProgramEnrollmentData();
         }
 
-        // Generate invoice number
-        $this->generateInvoiceNumber();
+        // Generate invoice number using model method
+        $this->invoiceNumber = Invoice::getNextInvoiceNumber();
 
         // Set default due date to 30 days from now (stored in Y-m-d format)
         $this->dueDate = now()->addDays(30)->format('Y-m-d');
@@ -55,7 +61,8 @@ new #[Title('Create Invoice')] class extends Component {
         Log::info('Invoice Component Initialized', [
             'invoice_number' => $this->invoiceNumber,
             'due_date' => $this->dueDate,
-            'program_enrollment_id' => $this->programEnrollmentId
+            'program_enrollment_id' => $this->programEnrollmentId,
+            'status' => $this->status
         ]);
 
         // Log activity
@@ -69,48 +76,6 @@ new #[Title('Create Invoice')] class extends Component {
         );
     }
 
-    // Generate unique invoice number
-    protected function generateInvoiceNumber(): void
-    {
-        $prefix = 'INV-';
-        $year = date('Y');
-        $month = date('m');
-
-        Log::debug('Generating Invoice Number', [
-            'prefix' => $prefix,
-            'year' => $year,
-            'month' => $month
-        ]);
-
-        // Get the latest invoice number with this prefix pattern
-        $latestInvoice = Invoice::where('invoice_number', 'like', "{$prefix}{$year}{$month}%")
-            ->orderBy('id', 'desc')
-            ->first();
-
-        if ($latestInvoice) {
-            // Extract the sequence number and increment
-            $sequence = (int)substr($latestInvoice->invoice_number, -4);
-            $sequence++;
-            Log::debug('Found Latest Invoice', [
-                'latest_invoice_number' => $latestInvoice->invoice_number,
-                'extracted_sequence' => $sequence - 1,
-                'new_sequence' => $sequence
-            ]);
-        } else {
-            // Start with sequence number 1
-            $sequence = 1;
-            Log::debug('No Previous Invoices Found', ['starting_sequence' => $sequence]);
-        }
-
-        // Format: INV-YYYYMM-XXXX (e.g., INV-202505-0001)
-        $this->invoiceNumber = sprintf("%s%s%s-%04d", $prefix, $year, $month, $sequence);
-
-        Log::info('Invoice Number Generated', [
-            'invoice_number' => $this->invoiceNumber,
-            'sequence' => $sequence
-        ]);
-    }
-
     // Load data based on selected program enrollment
     public function loadProgramEnrollmentData(): void
     {
@@ -119,7 +84,7 @@ new #[Title('Create Invoice')] class extends Component {
         ]);
 
         if ($this->programEnrollmentId) {
-            $enrollment = ProgramEnrollment::with('paymentPlan')->find($this->programEnrollmentId);
+            $enrollment = ProgramEnrollment::with(['paymentPlan', 'curriculum'])->find($this->programEnrollmentId);
 
             if ($enrollment) {
                 Log::info('Program Enrollment Found', [
@@ -137,10 +102,11 @@ new #[Title('Create Invoice')] class extends Component {
                         'amount' => $this->amount,
                         'payment_plan_type' => $enrollment->paymentPlan->type
                     ]);
-                } else {
-                    Log::warning('Program Enrollment Has No Payment Plan', [
-                        'enrollment_id' => $enrollment->id
-                    ]);
+                }
+
+                // Set description based on enrollment details
+                if ($enrollment->curriculum) {
+                    $this->description = "Invoice for " . $enrollment->curriculum->name;
                 }
             } else {
                 Log::error('Program Enrollment Not Found', [
@@ -150,16 +116,15 @@ new #[Title('Create Invoice')] class extends Component {
         }
     }
 
-    // Updated program enrollment ID - FIXED ORDER
+    // Updated program enrollment ID
     public function updatedProgramEnrollmentId(): void
     {
         Log::info('Program Enrollment ID Updated', [
-            'old_program_enrollment_id' => $this->programEnrollmentId,
             'new_program_enrollment_id' => $this->programEnrollmentId
         ]);
 
         // Reset first, then load new data
-        $this->reset(['paymentPlanId', 'amount']);
+        $this->reset(['paymentPlanId', 'amount', 'description']);
         $this->loadProgramEnrollmentData();
     }
 
@@ -203,8 +168,7 @@ new #[Title('Create Invoice')] class extends Component {
                 'amount' => $this->amount,
                 'dueDate' => $this->dueDate,
                 'status' => $this->status,
-                'paymentMethod' => $this->paymentMethod,
-                'reference' => $this->reference,
+                'description' => $this->description,
                 'notes' => $this->notes,
             ]
         ]);
@@ -220,9 +184,19 @@ new #[Title('Create Invoice')] class extends Component {
                 'amount' => 'required|numeric|min:0',
                 'dueDate' => 'required|date',
                 'status' => 'required|string|in:' . implode(',', $this->validStatuses),
-                'paymentMethod' => 'nullable|string|in:' . implode(',', $this->validPaymentMethods),
-                'reference' => 'nullable|string|max:255',
+                'description' => 'nullable|string|max:255',
                 'notes' => 'nullable|string',
+            ], [
+                'programEnrollmentId.required' => 'Please select a program enrollment.',
+                'programEnrollmentId.exists' => 'The selected program enrollment is invalid.',
+                'invoiceNumber.unique' => 'This invoice number already exists.',
+                'amount.required' => 'Please enter an amount.',
+                'amount.numeric' => 'Amount must be a valid number.',
+                'amount.min' => 'Amount must be greater than or equal to 0.',
+                'dueDate.required' => 'Please select a due date.',
+                'dueDate.date' => 'Due date must be a valid date.',
+                'status.required' => 'Please select a status.',
+                'status.in' => 'The selected status is invalid.',
             ]);
 
             Log::info('Validation Passed', ['validated_data' => $validated]);
@@ -237,17 +211,16 @@ new #[Title('Create Invoice')] class extends Component {
                 'curriculum_id' => $enrollment->curriculum_id
             ]);
 
-            // Prepare data for DB - FIXED TO INCLUDE ALL REQUIRED FIELDS
+            // Prepare data for DB
             $invoiceData = [
                 'program_enrollment_id' => $validated['programEnrollmentId'],
                 'payment_plan_id' => $validated['paymentPlanId'],
                 'invoice_number' => $validated['invoiceNumber'],
                 'amount' => $validated['amount'],
-                'invoice_date' => now(), // ADD THIS - MISSING FIELD!
+                'invoice_date' => now(),
                 'due_date' => $validated['dueDate'],
-                'status' => strtolower($validated['status']), // Convert to lowercase to match constants
-                'payment_method' => $validated['paymentMethod'],
-                'reference' => $validated['reference'],
+                'status' => $validated['status'],
+                'description' => $validated['description'],
                 'notes' => $validated['notes'],
                 // Add related IDs from enrollment
                 'child_profile_id' => $enrollment->child_profile_id,
@@ -256,8 +229,8 @@ new #[Title('Create Invoice')] class extends Component {
                 'created_by' => Auth::id(),
             ];
 
-            // Add paid_date if status is Paid
-            if (strtolower($validated['status']) === 'paid') {
+            // Add paid_date if status is paid
+            if ($validated['status'] === Invoice::STATUS_PAID) {
                 $invoiceData['paid_date'] = now();
                 Log::info('Added Paid Date', ['paid_date' => $invoiceData['paid_date']]);
             }
@@ -344,8 +317,7 @@ new #[Title('Create Invoice')] class extends Component {
                     'amount' => $this->amount,
                     'dueDate' => $this->dueDate,
                     'status' => $this->status,
-                    'paymentMethod' => $this->paymentMethod,
-                    'reference' => $this->reference,
+                    'description' => $this->description,
                     'notes' => $this->notes,
                 ]
             ]);
@@ -455,16 +427,18 @@ new #[Title('Create Invoice')] class extends Component {
         }
     }
 
-    // Get statuses for dropdown
+    // Get statuses for dropdown - Use Invoice model constants
     public function getStatusOptionsProperty(): array
     {
-        return array_combine($this->validStatuses, $this->validStatuses);
-    }
-
-    // Get payment methods for dropdown
-    public function getPaymentMethodOptionsProperty(): array
-    {
-        return array_combine($this->validPaymentMethods, $this->validPaymentMethods);
+        return [
+            Invoice::STATUS_DRAFT => 'Draft',
+            Invoice::STATUS_SENT => 'Sent',
+            Invoice::STATUS_PENDING => 'Pending',
+            Invoice::STATUS_PARTIALLY_PAID => 'Partially Paid',
+            Invoice::STATUS_PAID => 'Paid',
+            Invoice::STATUS_OVERDUE => 'Overdue',
+            Invoice::STATUS_CANCELLED => 'Cancelled',
+        ];
     }
 
     // Format a date to d/m/Y format
@@ -509,6 +483,7 @@ new #[Title('Create Invoice')] class extends Component {
         ];
     }
 };?>
+
 <div>
     <!-- Page header -->
     <x-header title="Create New Invoice" separator>
@@ -565,6 +540,9 @@ new #[Title('Create Invoice')] class extends Component {
                                     <option value="{{ $id }}">{{ $name }}</option>
                                 @endforeach
                             </select>
+                            @error('programEnrollmentId')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
                         </div>
 
                         <!-- Payment Plan -->
@@ -579,6 +557,9 @@ new #[Title('Create Invoice')] class extends Component {
                                     <option value="{{ $id }}">{{ $name }}</option>
                                 @endforeach
                             </select>
+                            @error('paymentPlanId')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
                         </div>
 
                         <!-- Due Date -->
@@ -590,6 +571,9 @@ new #[Title('Create Invoice')] class extends Component {
                                 required
                                 help-text="Display format: {{ $this->formattedDueDate ?: 'No date selected' }}"
                             />
+                            @error('dueDate')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
                         </div>
 
                         <!-- Status -->
@@ -600,34 +584,25 @@ new #[Title('Create Invoice')] class extends Component {
                                 class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                 required
                             >
-                                <option value="">Select status</option>
                                 @foreach($this->statusOptions as $value => $label)
                                     <option value="{{ $value }}">{{ $label }}</option>
                                 @endforeach
                             </select>
+                            @error('status')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
                         </div>
 
-                        <!-- Payment Method -->
+                        <!-- Description -->
                         <div>
-                            <label class="block mb-2 text-sm font-medium text-gray-700">Payment Method</label>
-                            <select
-                                wire:model.live="paymentMethod"
-                                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                            >
-                                <option value="">Select payment method (optional)</option>
-                                @foreach($this->paymentMethodOptions as $value => $label)
-                                    <option value="{{ $value }}">{{ $label }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-
-                        <!-- Reference -->
-                        <div class="md:col-span-2">
                             <x-input
-                                label="Reference"
-                                wire:model.live="reference"
-                                placeholder="e.g., Transaction ID, Check Number (optional)"
+                                label="Description"
+                                wire:model.live="description"
+                                placeholder="Brief description of the invoice"
                             />
+                            @error('description')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
                         </div>
 
                         <!-- Notes -->
@@ -638,6 +613,9 @@ new #[Title('Create Invoice')] class extends Component {
                                 placeholder="Additional notes about this invoice (optional)"
                                 rows="4"
                             />
+                            @error('notes')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
                         </div>
                     </div>
 
@@ -660,38 +638,6 @@ new #[Title('Create Invoice')] class extends Component {
 
         <!-- Right column (1/3) - Preview and Help -->
         <div class="space-y-6">
-            <!-- Debug Info (remove in production) -->
-            <x-card title="Debug Info" class="border-orange-200 bg-orange-50">
-                <div class="space-y-2 text-xs">
-                    <div><strong>Program Enrollments:</strong> {{ count($this->programEnrollmentOptions) }} available</div>
-                    <div><strong>Payment Plans:</strong> {{ count($this->paymentPlanOptions) }} available</div>
-                    <div><strong>Selected Enrollment ID:</strong> {{ $programEnrollmentId ?? 'None' }}</div>
-                    <div><strong>Selected Payment Plan ID:</strong> {{ $paymentPlanId ?? 'None' }}</div>
-                    <div><strong>Amount:</strong> ${{ $amount ?: '0.00' }}</div>
-                    <div><strong>Due Date (Raw):</strong> {{ $dueDate ?? 'None' }}</div>
-                    <div><strong>Due Date (Formatted):</strong> {{ $this->formattedDueDate ?: 'None' }}</div>
-
-                    <!-- Show first few options for debugging -->
-                    @if(count($this->programEnrollmentOptions) > 0)
-                        <div class="mt-2">
-                            <strong>Sample Enrollment Options:</strong>
-                            @foreach(array_slice($this->programEnrollmentOptions, 0, 2, true) as $key => $value)
-                                <div class="ml-2 text-xs truncate">{{ $key }}: {{ $value }}</div>
-                            @endforeach
-                        </div>
-                    @endif
-
-                    @if(count($this->paymentPlanOptions) > 0)
-                        <div class="mt-2">
-                            <strong>Sample Payment Plan Options:</strong>
-                            @foreach(array_slice($this->paymentPlanOptions, 0, 2, true) as $key => $value)
-                                <div class="ml-2 text-xs truncate">{{ $key }}: {{ $value }}</div>
-                            @endforeach
-                        </div>
-                    @endif
-                </div>
-            </x-card>
-
             <!-- Student Info Card (visible when enrollment selected) -->
             @if($this->selectedEnrollment)
                 <x-card title="Student Information">
@@ -777,6 +723,13 @@ new #[Title('Create Invoice')] class extends Component {
                         </div>
                     </div>
 
+                    @if($description)
+                        <div class="mb-4">
+                            <div class="text-sm font-medium text-gray-500">Description</div>
+                            <div>{{ $description }}</div>
+                        </div>
+                    @endif
+
                     <div class="py-4 my-4 border-t border-b border-base-300">
                         <div class="flex items-center justify-between">
                             <div class="font-semibold">Amount Due</div>
@@ -785,12 +738,11 @@ new #[Title('Create Invoice')] class extends Component {
                     </div>
 
                     <div class="mt-4 text-sm text-gray-500">
-                        <div><strong>Status:</strong> {{ $status }}</div>
-                        @if($paymentMethod)
-                            <div><strong>Payment Method:</strong> {{ $paymentMethod }}</div>
-                        @endif
-                        @if($reference)
-                            <div><strong>Reference:</strong> {{ $reference }}</div>
+                        <div><strong>Status:</strong>
+                            {{ $this->statusOptions[$status] ?? ucfirst(str_replace('_', ' ', $status)) }}
+                        </div>
+                        @if($notes)
+                            <div class="mt-2"><strong>Notes:</strong> {{ $notes }}</div>
                         @endif
                     </div>
                 </div>
@@ -799,6 +751,16 @@ new #[Title('Create Invoice')] class extends Component {
             <!-- Help Card -->
             <x-card title="Help & Information">
                 <div class="space-y-4 text-sm">
+                    <div>
+                        <div class="font-semibold">Invoice Number</div>
+                        <p class="text-gray-600">Automatically generated in format INV-YYYYMM-XXXX. Each invoice gets a unique sequential number.</p>
+                    </div>
+
+                    <div>
+                        <div class="font-semibold">Program Enrollment</div>
+                        <p class="text-gray-600">Select the student enrollment this invoice relates to. This will automatically populate related information.</p>
+                    </div>
+
                     <div>
                         <div class="font-semibold">Amount</div>
                         <p class="text-gray-600">Enter the total amount due for this invoice. This will be automatically filled if you select a payment plan.</p>
@@ -811,12 +773,17 @@ new #[Title('Create Invoice')] class extends Component {
 
                     <div>
                         <div class="font-semibold">Status</div>
-                        <p class="text-gray-600">Set to "Unpaid" by default. If set to "Paid", the payment date will be recorded as today.</p>
+                        <p class="text-gray-600">Set to "Pending" by default. If set to "Paid", the payment date will be recorded as today.</p>
                     </div>
 
                     <div>
-                        <div class="font-semibold">Reference</div>
-                        <p class="text-gray-600">Optional field for tracking payment references like transaction IDs or check numbers.</p>
+                        <div class="font-semibold">Description</div>
+                        <p class="text-gray-600">Brief description of what this invoice is for. Will be auto-populated based on the selected enrollment.</p>
+                    </div>
+
+                    <div>
+                        <div class="font-semibold">Notes</div>
+                        <p class="text-gray-600">Optional field for any additional information about this invoice.</p>
                     </div>
                 </div>
             </x-card>

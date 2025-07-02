@@ -1,12 +1,12 @@
 <?php
 
+use App\Models\Attendance;
 use App\Models\Session;
 use App\Models\Subject;
-use App\Models\Attendance;
 use App\Models\TeacherProfile;
 use App\Models\ActivityLog;
-use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -14,58 +14,185 @@ use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Mary\Traits\Toast;
 
-new #[Title('Attendance Records')] class extends Component {
+new #[Title('Attendance Management')] class extends Component {
     use WithPagination;
     use Toast;
+
+    // Current teacher profile
+    public ?TeacherProfile $teacherProfile = null;
 
     // Filters and search options
     #[Url]
     public string $search = '';
 
     #[Url]
-    public string $subject = '';
+    public string $subjectFilter = '';
 
     #[Url]
-    public string $status = '';
+    public string $statusFilter = '';
 
     #[Url]
-    public string $period = 'month';
+    public string $dateFilter = '';
 
     #[Url]
-    public string $startDate = '';
+    public string $attendanceStatusFilter = '';
 
     #[Url]
-    public string $endDate = '';
-
-    #[Url]
-    public int $perPage = 10;
+    public int $perPage = 15;
 
     #[Url]
     public bool $showFilters = false;
 
     #[Url]
-    public array $sortBy = ['column' => 'date', 'direction' => 'desc'];
+    public array $sortBy = ['column' => 'created_at', 'direction' => 'desc'];
+
+    // Stats
+    public array $stats = [];
+
+    // Filter options
+    public array $subjectOptions = [];
+    public array $statusOptions = [];
+    public array $dateOptions = [];
+    public array $attendanceStatusOptions = [];
 
     public function mount(): void
     {
-        // Default dates if not set
-        if (empty($this->startDate)) {
-            $this->startDate = Carbon::now()->startOfMonth()->format('Y-m-d');
-        }
+        $this->teacherProfile = Auth::user()->teacherProfile;
 
-        if (empty($this->endDate)) {
-            $this->endDate = Carbon::now()->format('Y-m-d');
+        if (!$this->teacherProfile) {
+            $this->error('Teacher profile not found. Please complete your profile first.');
+            $this->redirect(route('teacher.profile.edit'));
+            return;
         }
 
         // Log activity
         ActivityLog::log(
             Auth::id(),
             'access',
-            'Teacher accessed attendance index page',
+            'Accessed teacher attendance management page',
             Attendance::class,
             null,
             ['ip' => request()->ip()]
         );
+
+        $this->loadFilterOptions();
+        $this->loadStats();
+    }
+
+    protected function loadFilterOptions(): void
+    {
+        try {
+            // Subject options from teacher's subjects
+            $subjects = $this->teacherProfile->subjects()->orderBy('name')->get();
+            $this->subjectOptions = [
+                ['id' => '', 'name' => 'All Subjects'],
+                ...$subjects->map(fn($subject) => [
+                    'id' => $subject->id,
+                    'name' => "{$subject->name} ({$subject->code})"
+                ])->toArray()
+            ];
+
+            // Session status options
+            $this->statusOptions = [
+                ['id' => '', 'name' => 'All Sessions'],
+                ['id' => 'upcoming', 'name' => 'Upcoming Sessions'],
+                ['id' => 'completed', 'name' => 'Completed Sessions'],
+                ['id' => 'with_attendance', 'name' => 'Sessions with Attendance'],
+                ['id' => 'without_attendance', 'name' => 'Sessions without Attendance'],
+            ];
+
+            // Attendance status options
+            $this->attendanceStatusOptions = [
+                ['id' => '', 'name' => 'All Statuses'],
+                ['id' => 'present', 'name' => 'Present'],
+                ['id' => 'absent', 'name' => 'Absent'],
+                ['id' => 'late', 'name' => 'Late'],
+                ['id' => 'excused', 'name' => 'Excused'],
+            ];
+
+            // Date filter options
+            $this->dateOptions = [
+                ['id' => '', 'name' => 'All Dates'],
+                ['id' => 'today', 'name' => 'Today'],
+                ['id' => 'yesterday', 'name' => 'Yesterday'],
+                ['id' => 'this_week', 'name' => 'This Week'],
+                ['id' => 'last_week', 'name' => 'Last Week'],
+                ['id' => 'this_month', 'name' => 'This Month'],
+                ['id' => 'last_month', 'name' => 'Last Month'],
+            ];
+
+        } catch (\Exception $e) {
+            $this->subjectOptions = [['id' => '', 'name' => 'All Subjects']];
+            $this->statusOptions = [['id' => '', 'name' => 'All Sessions']];
+            $this->attendanceStatusOptions = [['id' => '', 'name' => 'All Statuses']];
+            $this->dateOptions = [['id' => '', 'name' => 'All Dates']];
+        }
+    }
+
+    protected function loadStats(): void
+    {
+        try {
+            if (!$this->teacherProfile) {
+                $this->stats = [
+                    'total_sessions' => 0,
+                    'sessions_with_attendance' => 0,
+                    'total_attendance_records' => 0,
+                    'average_attendance_rate' => 0,
+                    'present_count' => 0,
+                    'absent_count' => 0,
+                ];
+                return;
+            }
+
+            $totalSessions = Session::where('teacher_profile_id', $this->teacherProfile->id)->count();
+
+            $sessionsWithAttendance = Session::where('teacher_profile_id', $this->teacherProfile->id)
+                ->whereHas('attendances')
+                ->count();
+
+            $totalAttendanceRecords = Attendance::whereHas('session', function ($query) {
+                $query->where('teacher_profile_id', $this->teacherProfile->id);
+            })->count();
+
+            $presentCount = Attendance::whereHas('session', function ($query) {
+                $query->where('teacher_profile_id', $this->teacherProfile->id);
+            })->where('status', 'present')->count();
+
+            $absentCount = Attendance::whereHas('session', function ($query) {
+                $query->where('teacher_profile_id', $this->teacherProfile->id);
+            })->where('status', 'absent')->count();
+
+            $lateCount = Attendance::whereHas('session', function ($query) {
+                $query->where('teacher_profile_id', $this->teacherProfile->id);
+            })->where('status', 'late')->count();
+
+            // Calculate average attendance rate
+            $averageAttendanceRate = 0;
+            if ($totalAttendanceRecords > 0) {
+                $attendingCount = $presentCount + $lateCount;
+                $averageAttendanceRate = round(($attendingCount / $totalAttendanceRecords) * 100, 1);
+            }
+
+            $this->stats = [
+                'total_sessions' => $totalSessions,
+                'sessions_with_attendance' => $sessionsWithAttendance,
+                'total_attendance_records' => $totalAttendanceRecords,
+                'average_attendance_rate' => $averageAttendanceRate,
+                'present_count' => $presentCount,
+                'absent_count' => $absentCount,
+                'late_count' => $lateCount,
+            ];
+        } catch (\Exception $e) {
+            $this->stats = [
+                'total_sessions' => 0,
+                'sessions_with_attendance' => 0,
+                'total_attendance_records' => 0,
+                'average_attendance_rate' => 0,
+                'present_count' => 0,
+                'absent_count' => 0,
+                'late_count' => 0,
+            ];
+        }
     }
 
     // Sort data
@@ -77,422 +204,213 @@ new #[Title('Attendance Records')] class extends Component {
             $this->sortBy['column'] = $column;
             $this->sortBy['direction'] = 'asc';
         }
-    }
-
-    // Set time period
-    public function setPeriod(string $period): void
-    {
-        $this->period = $period;
-
-        switch ($period) {
-            case 'today':
-                $this->startDate = Carbon::now()->format('Y-m-d');
-                $this->endDate = Carbon::now()->format('Y-m-d');
-                break;
-            case 'yesterday':
-                $this->startDate = Carbon::yesterday()->format('Y-m-d');
-                $this->endDate = Carbon::yesterday()->format('Y-m-d');
-                break;
-            case 'week':
-                $this->startDate = Carbon::now()->startOfWeek()->format('Y-m-d');
-                $this->endDate = Carbon::now()->endOfWeek()->format('Y-m-d');
-                break;
-            case 'month':
-                $this->startDate = Carbon::now()->startOfMonth()->format('Y-m-d');
-                $this->endDate = Carbon::now()->endOfMonth()->format('Y-m-d');
-                break;
-            case 'quarter':
-                $this->startDate = Carbon::now()->startOfQuarter()->format('Y-m-d');
-                $this->endDate = Carbon::now()->endOfQuarter()->format('Y-m-d');
-                break;
-            case 'semester':
-                $this->startDate = Carbon::now()->subMonths(6)->format('Y-m-d');
-                $this->endDate = Carbon::now()->format('Y-m-d');
-                break;
-            case 'year':
-                $this->startDate = Carbon::now()->startOfYear()->format('Y-m-d');
-                $this->endDate = Carbon::now()->endOfYear()->format('Y-m-d');
-                break;
-            case 'all':
-                $this->startDate = Carbon::now()->subYears(5)->format('Y-m-d');
-                $this->endDate = Carbon::now()->format('Y-m-d');
-                break;
-            case 'custom':
-                // Keep existing dates
-                break;
-        }
-    }
-
-    // Reset filters
-    public function resetFilters(): void
-    {
-        $this->search = '';
-        $this->subject = '';
-        $this->status = '';
-        $this->period = 'month';
-        $this->startDate = Carbon::now()->startOfMonth()->format('Y-m-d');
-        $this->endDate = Carbon::now()->format('Y-m-d');
         $this->resetPage();
     }
 
-    // Get subjects for this teacher
-    public function subjects()
+    // Navigation methods
+    public function redirectToTakeAttendance(int $sessionId): void
     {
-        $teacherProfile = Auth::user()->teacherProfile;
+        $this->redirect(route('teacher.attendance.take', $sessionId));
+    }
 
-        if (!$teacherProfile) {
-            return collect();
+    public function redirectToSessionShow(int $sessionId): void
+    {
+        $this->redirect(route('teacher.sessions.show', $sessionId));
+    }
+
+    public function updatedSearch(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedSubjectFilter(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedStatusFilter(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedDateFilter(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedAttendanceStatusFilter(): void
+    {
+        $this->resetPage();
+    }
+
+    public function clearFilters(): void
+    {
+        $this->search = '';
+        $this->subjectFilter = '';
+        $this->statusFilter = '';
+        $this->dateFilter = '';
+        $this->attendanceStatusFilter = '';
+        $this->resetPage();
+    }
+
+    // Get filtered and paginated sessions with attendance data
+    public function sessions(): LengthAwarePaginator
+    {
+        if (!$this->teacherProfile) {
+            return new LengthAwarePaginator([], 0, $this->perPage);
         }
 
-        try {
-            // If there's a subjects relationship
-            if (method_exists($teacherProfile, 'subjects')) {
-                return $teacherProfile->subjects()
-                    ->orderBy('name')
-                    ->get()
-                    ->map(function ($subject) {
-                        return [
-                            'id' => $subject->id,
-                            'name' => $subject->name . ' (' . $subject->code . ')'
-                        ];
-                    });
-            }
+        $query = Session::query()
+            ->with(['subject', 'attendances', 'attendances.childProfile'])
+            ->where('teacher_profile_id', $this->teacherProfile->id);
 
-            // Fallback: Get subjects from sessions
-            return Subject::whereHas('sessions', function ($query) use ($teacherProfile) {
-                $query->where('teacher_profile_id', $teacherProfile->id);
-            })
-            ->orderBy('name')
-            ->get()
-            ->map(function ($subject) {
-                return [
-                    'id' => $subject->id,
-                    'name' => $subject->name . ' (' . $subject->code . ')'
-                ];
+        // Apply filters
+        if ($this->search) {
+            $query->whereHas('subject', function (Builder $q) {
+                $q->where('name', 'like', "%{$this->search}%")
+                  ->orWhere('code', 'like', "%{$this->search}%");
             });
-        } catch (\Exception $e) {
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error loading subjects: ' . $e->getMessage(),
-                TeacherProfile::class,
-                $teacherProfile->id,
-                ['ip' => request()->ip()]
-            );
-
-            return collect();
-        }
-    }
-
-    // View session details
-    public function viewSession($sessionId)
-    {
-        return redirect()->route('teacher.sessions.show', $sessionId);
-    }
-
-    // Mark attendance for a session
-    public function markAttendance($sessionId)
-    {
-        return redirect()->route('teacher.sessions.attendance', $sessionId);
-    }
-
-    // View student profile
-    public function viewStudent($studentId)
-    {
-        return redirect()->route('teacher.students.show', $studentId);
-    }
-
-    // Get sessions with attendance data
-    public function sessions()
-    {
-        $teacherProfile = Auth::user()->teacherProfile;
-
-        if (!$teacherProfile) {
-            return [];
         }
 
-        try {
-            $query = Session::where('teacher_profile_id', $teacherProfile->id)
-                ->with(['subject', 'subject.curriculum'])
-                ->whereBetween('date', [$this->startDate, $this->endDate])
-                ->where(function ($query) {
-                    $query->where('status', '!=', 'cancelled')
-                          ->orWhereNull('status');
-                })
-                ->when($this->search, function (Builder $query) {
-                    $query->where(function($q) {
-                        $q->where('topic', 'like', '%' . $this->search . '%')
-                          ->orWhereHas('subject', function ($subquery) {
-                              $subquery->where('name', 'like', '%' . $this->search . '%')
-                                      ->orWhere('code', 'like', '%' . $this->search . '%');
-                          });
-                    });
-                })
-                ->when($this->subject, function (Builder $query) {
-                    $query->where('subject_id', $this->subject);
-                })
-                ->when($this->status, function (Builder $query) {
-                    // Filter by session completion status
-                    $now = Carbon::now();
+        if ($this->subjectFilter) {
+            $query->where('subject_id', $this->subjectFilter);
+        }
 
-                    if ($this->status === 'completed') {
-                        $query->where(function($q) use ($now) {
-                            $q->where('date', '<', $now->format('Y-m-d'))
-                              ->orWhere(function($q2) use ($now) {
-                                  $q2->where('date', '=', $now->format('Y-m-d'))
-                                     ->where('end_time', '<', $now->format('H:i:s'));
-                              });
-                        });
-                    } elseif ($this->status === 'upcoming') {
-                        $query->where(function($q) use ($now) {
-                            $q->where('date', '>', $now->format('Y-m-d'))
-                              ->orWhere(function($q2) use ($now) {
-                                  $q2->where('date', '=', $now->format('Y-m-d'))
-                                     ->where('start_time', '>', $now->format('H:i:s'));
-                              });
-                        });
-                    } elseif ($this->status === 'in_progress') {
-                        $query->where('date', '=', $now->format('Y-m-d'))
-                              ->where('start_time', '<=', $now->format('H:i:s'))
-                              ->where('end_time', '>=', $now->format('H:i:s'));
-                    }
-                });
-
-            // Get sessions
-            $sessions = $query->orderBy($this->sortBy['column'], $this->sortBy['direction'])
-                ->paginate($this->perPage);
-
-            // Load attendance data for each session
-            foreach ($sessions as $session) {
-                try {
-                    // Get enrollment count for the subject
-                    $enrollmentCount = 0;
-                    if (method_exists($session->subject, 'enrolledStudents')) {
-                        $enrollmentCount = $session->subject->enrolledStudents()->count();
-                    }
-
-                    // Get attendance count
-                    $attendanceCount = 0;
-                    $absentCount = 0;
-                    $lateCount = 0;
-                    $excusedCount = 0;
-
-                    if (method_exists($session, 'attendances')) {
-                        $attendanceCount = $session->attendances()->where('status', 'present')->count();
-                        $absentCount = $session->attendances()->where('status', 'absent')->count();
-                        $lateCount = $session->attendances()->where('status', 'late')->count();
-                        $excusedCount = $session->attendances()->where('status', 'excused')->count();
-                    } else {
-                        // Try direct query if relationship not defined
-                        $attendanceCount = Attendance::where('session_id', $session->id)
-                            ->where('status', 'present')
-                            ->count();
-                        $absentCount = Attendance::where('session_id', $session->id)
-                            ->where('status', 'absent')
-                            ->count();
-                        $lateCount = Attendance::where('session_id', $session->id)
-                            ->where('status', 'late')
-                            ->count();
-                        $excusedCount = Attendance::where('session_id', $session->id)
-                            ->where('status', 'excused')
-                            ->count();
-                    }
-
-                    // Calculate percentage
-                    $attendancePercentage = $enrollmentCount > 0
-                        ? round((($attendanceCount + $lateCount) / $enrollmentCount) * 100)
-                        : 0;
-
-                    // Add data to session
-                    $session->attendance_data = [
-                        'enrollment_count' => $enrollmentCount,
-                        'attendance_count' => $attendanceCount,
-                        'absent_count' => $absentCount,
-                        'late_count' => $lateCount,
-                        'excused_count' => $excusedCount,
-                        'attendance_percentage' => $attendancePercentage,
-                        'is_taken' => ($attendanceCount + $absentCount + $lateCount + $excusedCount) > 0,
-                    ];
-
-                    // Check if session is upcoming, in progress, or completed
-                    $now = Carbon::now();
-                    $sessionDate = Carbon::parse($session->date);
-                    $startTime = Carbon::parse($session->date . ' ' . $session->start_time);
-                    $endTime = Carbon::parse($session->date . ' ' . $session->end_time);
-
-                    $session->status_data = [
-                        'is_upcoming' => $startTime->isFuture(),
-                        'is_in_progress' => $startTime->isPast() && $endTime->isFuture(),
-                        'is_completed' => $endTime->isPast(),
-                    ];
-                } catch (\Exception $e) {
-                    // Log error but continue
-                    ActivityLog::log(
-                        Auth::id(),
-                        'error',
-                        'Error loading attendance data: ' . $e->getMessage(),
-                        Session::class,
-                        $session->id,
-                        ['ip' => request()->ip()]
-                    );
-
-                    // Set default values
-                    $session->attendance_data = [
-                        'enrollment_count' => 0,
-                        'attendance_count' => 0,
-                        'absent_count' => 0,
-                        'late_count' => 0,
-                        'excused_count' => 0,
-                        'attendance_percentage' => 0,
-                        'is_taken' => false,
-                    ];
-
-                    $session->status_data = [
-                        'is_upcoming' => false,
-                        'is_in_progress' => false,
-                        'is_completed' => true,
-                    ];
-                }
+        if ($this->statusFilter) {
+            switch ($this->statusFilter) {
+                case 'upcoming':
+                    $query->where('start_time', '>', now());
+                    break;
+                case 'completed':
+                    $query->where('end_time', '<', now());
+                    break;
+                case 'with_attendance':
+                    $query->whereHas('attendances');
+                    break;
+                case 'without_attendance':
+                    $query->whereDoesntHave('attendances');
+                    break;
             }
+        }
 
-            return $sessions;
-        } catch (\Exception $e) {
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error loading sessions: ' . $e->getMessage(),
-                TeacherProfile::class,
-                $teacherProfile->id,
-                ['ip' => request()->ip()]
-            );
+        if ($this->attendanceStatusFilter) {
+            $query->whereHas('attendances', function (Builder $q) {
+                $q->where('status', $this->attendanceStatusFilter);
+            });
+        }
 
-            return [];
+        if ($this->dateFilter) {
+            $now = now();
+            switch ($this->dateFilter) {
+                case 'today':
+                    $query->whereDate('start_time', $now->toDateString());
+                    break;
+                case 'yesterday':
+                    $query->whereDate('start_time', $now->copy()->subDay()->toDateString());
+                    break;
+                case 'this_week':
+                    $query->whereBetween('start_time', [
+                        $now->copy()->startOfWeek(),
+                        $now->copy()->endOfWeek()
+                    ]);
+                    break;
+                case 'last_week':
+                    $query->whereBetween('start_time', [
+                        $now->copy()->subWeek()->startOfWeek(),
+                        $now->copy()->subWeek()->endOfWeek()
+                    ]);
+                    break;
+                case 'this_month':
+                    $query->whereBetween('start_time', [
+                        $now->copy()->startOfMonth(),
+                        $now->copy()->endOfMonth()
+                    ]);
+                    break;
+                case 'last_month':
+                    $query->whereBetween('start_time', [
+                        $now->copy()->subMonth()->startOfMonth(),
+                        $now->copy()->subMonth()->endOfMonth()
+                    ]);
+                    break;
+            }
+        }
+
+        return $query->orderBy($this->sortBy['column'], $this->sortBy['direction'])
+                     ->paginate($this->perPage);
+    }
+
+    // Get session status
+    public function getSessionStatus(Session $session): array
+    {
+        $now = now();
+
+        if ($session->start_time > $now) {
+            return ['status' => 'upcoming', 'color' => 'bg-blue-100 text-blue-800'];
+        } elseif ($session->start_time <= $now && $session->end_time >= $now) {
+            return ['status' => 'ongoing', 'color' => 'bg-green-100 text-green-800'];
+        } else {
+            return ['status' => 'completed', 'color' => 'bg-gray-100 text-gray-600'];
         }
     }
 
-    // Get attendance statistics
-    public function attendanceStats()
+    // Get attendance statistics for a session
+    public function getAttendanceStats(Session $session): array
     {
-        $teacherProfile = Auth::user()->teacherProfile;
+        $attendances = $session->attendances;
+        $total = $attendances->count();
 
-        if (!$teacherProfile) {
+        if ($total === 0) {
             return [
-                'total_sessions' => 0,
-                'attendance_marked' => 0,
-                'average_attendance' => 0,
-                'total_students' => 0,
-                'attendance_rate' => 0,
+                'total' => 0,
+                'present' => 0,
+                'absent' => 0,
+                'late' => 0,
+                'excused' => 0,
+                'rate' => 0
             ];
         }
 
-        try {
-            // Get sessions in date range
-            $sessionIds = Session::where('teacher_profile_id', $teacherProfile->id)
-                ->whereBetween('date', [$this->startDate, $this->endDate])
-                ->where(function ($query) {
-                    $query->where('status', '!=', 'cancelled')
-                          ->orWhereNull('status');
-                })
-                ->when($this->subject, function (Builder $query) {
-                    $query->where('subject_id', $this->subject);
-                })
-                ->pluck('id');
+        $present = $attendances->where('status', 'present')->count();
+        $absent = $attendances->where('status', 'absent')->count();
+        $late = $attendances->where('status', 'late')->count();
+        $excused = $attendances->where('status', 'excused')->count();
 
-            // Total sessions
-            $totalSessions = count($sessionIds);
+        $attendingCount = $present + $late;
+        $rate = round(($attendingCount / $total) * 100, 1);
 
-            // Sessions with attendance marked
-            $attendanceMarked = 0;
-            if ($totalSessions > 0) {
-                $attendanceMarked = Attendance::whereIn('session_id', $sessionIds)
-                    ->distinct('session_id')
-                    ->count('session_id');
-            }
+        return [
+            'total' => $total,
+            'present' => $present,
+            'absent' => $absent,
+            'late' => $late,
+            'excused' => $excused,
+            'rate' => $rate
+        ];
+    }
 
-            // Attendance percentage across all sessions
-            $totalStudents = 0;
-            $presentStudents = 0;
-            $lateStudents = 0;
-
-            if ($totalSessions > 0) {
-                // Get unique student count across all sessions (based on enrolled students)
-                $subjectIds = Session::whereIn('id', $sessionIds)
-                    ->distinct('subject_id')
-                    ->pluck('subject_id');
-
-                // Try to get enrolled students count
-                foreach ($subjectIds as $subjectId) {
-                    $subject = Subject::find($subjectId);
-                    if ($subject && method_exists($subject, 'enrolledStudents')) {
-                        $totalStudents += $subject->enrolledStudents()->count();
-                    }
-                }
-
-                // Get attendance counts
-                $presentStudents = Attendance::whereIn('session_id', $sessionIds)
-                    ->where('status', 'present')
-                    ->count();
-
-                $lateStudents = Attendance::whereIn('session_id', $sessionIds)
-                    ->where('status', 'late')
-                    ->count();
-            }
-
-            // Calculate average attendance rate
-            $attendanceRate = $totalStudents > 0
-                ? round((($presentStudents + $lateStudents) / $totalStudents) * 100)
-                : 0;
-
-            // Calculate average attendance per session
-            $averageAttendance = $totalSessions > 0 && $totalStudents > 0
-                ? round(($presentStudents + $lateStudents) / $totalSessions)
-                : 0;
-
-            return [
-                'total_sessions' => $totalSessions,
-                'attendance_marked' => $attendanceMarked,
-                'average_attendance' => $averageAttendance,
-                'total_students' => $totalStudents,
-                'attendance_rate' => $attendanceRate,
-            ];
-        } catch (\Exception $e) {
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error calculating attendance stats: ' . $e->getMessage(),
-                TeacherProfile::class,
-                $teacherProfile->id,
-                ['ip' => request()->ip()]
-            );
-
-            return [
-                'total_sessions' => 0,
-                'attendance_marked' => 0,
-                'average_attendance' => 0,
-                'total_students' => 0,
-                'attendance_rate' => 0,
-            ];
-        }
+    // Get attendance status color
+    public function getAttendanceStatusColor(string $status): string
+    {
+        return match(strtolower($status)) {
+            'present' => 'bg-green-100 text-green-800',
+            'absent' => 'bg-red-100 text-red-800',
+            'late' => 'bg-yellow-100 text-yellow-800',
+            'excused' => 'bg-blue-100 text-blue-800',
+            default => 'bg-gray-100 text-gray-600'
+        };
     }
 
     public function with(): array
     {
         return [
             'sessions' => $this->sessions(),
-            'subjects' => $this->subjects(),
-            'attendanceStats' => $this->attendanceStats(),
         ];
     }
-};
-?>
+};?>
 
 <div>
     <!-- Page header -->
-    <x-header title="Attendance Records" separator progress-indicator>
-        <x-slot:subtitle>
-            View and manage student attendance for your sessions
-        </x-slot:subtitle>
-
+    <x-header title="Attendance Management" subtitle="Track and manage student attendance" separator progress-indicator>
         <!-- SEARCH -->
         <x-slot:middle class="!justify-end">
             <x-input placeholder="Search sessions..." wire:model.live.debounce="search" icon="o-magnifying-glass" clearable />
@@ -503,128 +421,112 @@ new #[Title('Attendance Records')] class extends Component {
             <x-button
                 label="Filters"
                 icon="o-funnel"
-                :badge="count(array_filter([$subject, $status, $period !== 'month']))"
+                :badge="count(array_filter([$subjectFilter, $statusFilter, $dateFilter, $attendanceStatusFilter]))"
                 badge-classes="font-mono"
                 @click="$wire.showFilters = true"
                 class="bg-base-300"
-                responsive
-            />
+                responsive />
         </x-slot:actions>
     </x-header>
 
-    <!-- QUICK STATS PANEL -->
-    <div class="grid grid-cols-2 gap-4 mb-6 md:grid-cols-5">
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-primary">
-                <x-icon name="o-calendar" class="w-8 h-8" />
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 gap-6 mb-8 md:grid-cols-2 lg:grid-cols-7">
+        <x-card class="lg:col-span-2">
+            <div class="p-6">
+                <div class="flex items-center">
+                    <div class="p-3 mr-4 bg-blue-100 rounded-full">
+                        <x-icon name="o-presentation-chart-line" class="w-8 h-8 text-blue-600" />
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-blue-600">{{ number_format($stats['total_sessions']) }}</div>
+                        <div class="text-sm text-gray-500">Total Sessions</div>
+                        <div class="text-xs text-gray-400">{{ $stats['sessions_with_attendance'] }} with attendance</div>
+                    </div>
+                </div>
             </div>
-            <div class="stat-title">Sessions</div>
-            <div class="stat-value">{{ $attendanceStats['total_sessions'] }}</div>
-            <div class="stat-desc">Total sessions</div>
-        </div>
+        </x-card>
 
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-info">
-                <x-icon name="o-clipboard-document-check" class="w-8 h-8" />
+        <x-card>
+            <div class="p-6">
+                <div class="flex items-center">
+                    <div class="p-3 mr-4 bg-purple-100 rounded-full">
+                        <x-icon name="o-clipboard-document-check" class="w-8 h-8 text-purple-600" />
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-purple-600">{{ number_format($stats['total_attendance_records']) }}</div>
+                        <div class="text-sm text-gray-500">Records</div>
+                    </div>
+                </div>
             </div>
-            <div class="stat-title">Marked</div>
-            <div class="stat-value text-info">{{ $attendanceStats['attendance_marked'] }}</div>
-            <div class="stat-desc">Attendance recorded</div>
-        </div>
+        </x-card>
 
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-warning">
-                <x-icon name="o-users" class="w-8 h-8" />
+        <x-card>
+            <div class="p-6">
+                <div class="flex items-center">
+                    <div class="p-3 mr-4 bg-green-100 rounded-full">
+                        <x-icon name="o-chart-bar" class="w-8 h-8 text-green-600" />
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-green-600">{{ $stats['average_attendance_rate'] }}%</div>
+                        <div class="text-sm text-gray-500">Avg Rate</div>
+                    </div>
+                </div>
             </div>
-            <div class="stat-title">Average</div>
-            <div class="stat-value text-warning">{{ $attendanceStats['average_attendance'] }}</div>
-            <div class="stat-desc">Students per session</div>
-        </div>
+        </x-card>
 
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-success">
-                <x-icon name="o-presentation-chart-bar" class="w-8 h-8" />
+        <x-card>
+            <div class="p-6">
+                <div class="flex items-center">
+                    <div class="p-3 mr-4 bg-green-100 rounded-full">
+                        <x-icon name="o-check-circle" class="w-8 h-8 text-green-600" />
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-green-600">{{ number_format($stats['present_count']) }}</div>
+                        <div class="text-sm text-gray-500">Present</div>
+                    </div>
+                </div>
             </div>
-            <div class="stat-title">Rate</div>
-            <div class="stat-value text-success">{{ $attendanceStats['attendance_rate'] }}%</div>
-            <div class="stat-desc">Overall attendance</div>
-        </div>
+        </x-card>
 
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-secondary">
-                <x-icon name="o-user-group" class="w-8 h-8" />
+        <x-card>
+            <div class="p-6">
+                <div class="flex items-center">
+                    <div class="p-3 mr-4 bg-yellow-100 rounded-full">
+                        <x-icon name="o-clock" class="w-8 h-8 text-yellow-600" />
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-yellow-600">{{ number_format($stats['late_count']) }}</div>
+                        <div class="text-sm text-gray-500">Late</div>
+                    </div>
+                </div>
             </div>
-            <div class="stat-title">Students</div>
-            <div class="stat-value text-secondary">{{ $attendanceStats['total_students'] }}</div>
-            <div class="stat-desc">Total enrolled</div>
-        </div>
+        </x-card>
+
+        <x-card>
+            <div class="p-6">
+                <div class="flex items-center">
+                    <div class="p-3 mr-4 bg-red-100 rounded-full">
+                        <x-icon name="o-x-circle" class="w-8 h-8 text-red-600" />
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-red-600">{{ number_format($stats['absent_count']) }}</div>
+                        <div class="text-sm text-gray-500">Absent</div>
+                    </div>
+                </div>
+            </div>
+        </x-card>
     </div>
 
-    <!-- DATE RANGE SELECTOR -->
-    <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
-        <div class="flex flex-wrap gap-2">
-            <x-button
-                label="Today"
-                @click="$wire.setPeriod('today')"
-                class="{{ $period === 'today' ? 'btn-primary' : 'btn-outline' }}"
-                size="sm"
-            />
-            <x-button
-                label="Yesterday"
-                @click="$wire.setPeriod('yesterday')"
-                class="{{ $period === 'yesterday' ? 'btn-primary' : 'btn-outline' }}"
-                size="sm"
-            />
-            <x-button
-                label="This Week"
-                @click="$wire.setPeriod('week')"
-                class="{{ $period === 'week' ? 'btn-primary' : 'btn-outline' }}"
-                size="sm"
-            />
-            <x-button
-                label="This Month"
-                @click="$wire.setPeriod('month')"
-                class="{{ $period === 'month' ? 'btn-primary' : 'btn-outline' }}"
-                size="sm"
-            />
-            <x-button
-                label="This Quarter"
-                @click="$wire.setPeriod('quarter')"
-                class="{{ $period === 'quarter' ? 'btn-primary' : 'btn-outline' }}"
-                size="sm"
-            />
-            <x-button
-                label="This Year"
-                @click="$wire.setPeriod('year')"
-                class="{{ $period === 'year' ? 'btn-primary' : 'btn-outline' }}"
-                size="sm"
-            />
-        </div>
-
-        <div class="flex items-center gap-2">
-            <x-input type="date" wire:model.live="startDate" />
-            <span>to</span>
-            <x-input type="date" wire:model.live="endDate" />
-            <x-button
-                label="Apply"
-                icon="o-check"
-                @click="$wire.setPeriod('custom')"
-                class="btn-primary"
-                size="sm"
-            />
-        </div>
-    </div>
-
-    <!-- SESSIONS TABLE -->
+    <!-- Sessions Table -->
     <x-card>
         <div class="overflow-x-auto">
             <table class="table w-full table-zebra">
                 <thead>
                     <tr>
-                        <th class="cursor-pointer" wire:click="sortBy('date')">
+                        <th class="cursor-pointer" wire:click="sortBy('start_time')">
                             <div class="flex items-center">
-                                Date & Time
-                                @if ($sortBy['column'] === 'date')
+                                Session Details
+                                @if ($sortBy['column'] === 'start_time')
                                     <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
                                 @endif
                             </div>
@@ -637,97 +539,139 @@ new #[Title('Attendance Records')] class extends Component {
                                 @endif
                             </div>
                         </th>
-                        <th class="cursor-pointer" wire:click="sortBy('topic')">
-                            <div class="flex items-center">
-                                Topic
-                                @if ($sortBy['column'] === 'topic')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th>Attendance</th>
                         <th>Status</th>
+                        <th>Attendance Summary</th>
+                        <th>Attendance Rate</th>
                         <th class="text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @forelse ($sessions as $session)
+                    @forelse($sessions as $session)
+                        @php
+                            $sessionStatus = $this->getSessionStatus($session);
+                            $attendanceStats = $this->getAttendanceStats($session);
+                        @endphp
                         <tr class="hover">
                             <td>
-                                <div class="flex flex-col">
-                                    <span class="font-medium">{{ $session->date->format('d M Y') }}</span>
-                                    <span class="text-sm text-gray-600">{{ $session->start_time }} - {{ $session->end_time }}</span>
-                                </div>
-                            </td>
-                            <td>
-                                <div class="flex flex-col">
-                                    <span>{{ $session->subject->name ?? 'Unknown Subject' }}</span>
-                                    <span class="text-sm text-gray-600">{{ $session->subject->code ?? '' }}</span>
-                                </div>
-                            </td>
-                            <td>{{ $session->topic }}</td>
-                            <td>
-                                <div class="flex items-center gap-1">
-                                    @if ($session->attendance_data['is_taken'])
-                                        <div class="radial-progress text-success" style="--value:{{ $session->attendance_data['attendance_percentage'] }}; --size:2rem; --thickness: 2px;">
-                                            <span class="text-xs">{{ $session->attendance_data['attendance_percentage'] }}%</span>
-                                        </div>
-                                        <div class="ml-2">
-                                            <div class="text-sm">
-                                                <span class="text-success">{{ $session->attendance_data['attendance_count'] }}</span> present
-                                                @if ($session->attendance_data['late_count'] > 0)
-                                                    • <span class="text-warning">{{ $session->attendance_data['late_count'] }}</span> late
-                                                @endif
-                                                @if ($session->attendance_data['absent_count'] > 0)
-                                                    • <span class="text-error">{{ $session->attendance_data['absent_count'] }}</span> absent
-                                                @endif
-                                            </div>
-                                        </div>
-                                    @else
-                                        <span class="text-gray-500">Not marked</span>
+                                <div>
+                                    <button
+                                        wire:click="redirectToSessionShow({{ $session->id }})"
+                                        class="font-semibold text-blue-600 hover:text-blue-800 hover:underline"
+                                    >
+                                        Session #{{ $session->id }}
+                                    </button>
+                                    <div class="text-sm text-gray-500">
+                                        {{ $session->start_time->format('M d, Y \a\t g:i A') }}
+                                        @if($session->end_time)
+                                            - {{ $session->end_time->format('g:i A') }}
+                                        @endif
+                                    </div>
+                                    @if($session->type)
+                                        <div class="text-xs text-gray-400">{{ ucfirst($session->type) }}</div>
                                     @endif
                                 </div>
                             </td>
                             <td>
-                                @if ($session->status_data['is_upcoming'])
-                                    <x-badge label="Upcoming" color="info" />
-                                @elseif ($session->status_data['is_in_progress'])
-                                    <x-badge label="In Progress" color="warning" />
-                                @elseif ($session->status_data['is_completed'])
-                                    <x-badge label="Completed" color="success" />
+                                <div>
+                                    <div class="font-medium">{{ $session->subject->name }}</div>
+                                    <div class="text-sm text-gray-500">{{ $session->subject->code }}</div>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $sessionStatus['color'] }}">
+                                    {{ ucfirst($sessionStatus['status']) }}
+                                </span>
+                                @if($attendanceStats['total'] > 0)
+                                    <div class="mt-1">
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                            Attendance Taken
+                                        </span>
+                                    </div>
+                                @endif
+                            </td>
+                            <td>
+                                @if($attendanceStats['total'] > 0)
+                                    <div class="text-sm">
+                                        <div class="flex space-x-4">
+                                            <span class="font-medium text-green-600">{{ $attendanceStats['present'] }}P</span>
+                                            <span class="font-medium text-yellow-600">{{ $attendanceStats['late'] }}L</span>
+                                            <span class="font-medium text-red-600">{{ $attendanceStats['absent'] }}A</span>
+                                            @if($attendanceStats['excused'] > 0)
+                                                <span class="font-medium text-blue-600">{{ $attendanceStats['excused'] }}E</span>
+                                            @endif
+                                        </div>
+                                        <div class="text-xs text-gray-500">Total: {{ $attendanceStats['total'] }} students</div>
+                                    </div>
                                 @else
-                                    <x-badge label="Unknown" color="ghost" />
+                                    <span class="text-sm text-gray-500">No attendance</span>
+                                @endif
+                            </td>
+                            <td>
+                                @if($attendanceStats['total'] > 0)
+                                    <div class="flex items-center">
+                                        <div class="w-16 h-2 mr-2 bg-gray-200 rounded-full">
+                                            <div
+                                                class="h-2 rounded-full {{ $attendanceStats['rate'] >= 80 ? 'bg-green-600' : ($attendanceStats['rate'] >= 60 ? 'bg-yellow-600' : 'bg-red-600') }}"
+                                                style="width: {{ $attendanceStats['rate'] }}%"
+                                            ></div>
+                                        </div>
+                                        <span class="text-sm font-medium">{{ $attendanceStats['rate'] }}%</span>
+                                    </div>
+                                @else
+                                    <span class="text-gray-500">-</span>
                                 @endif
                             </td>
                             <td class="text-right">
                                 <div class="flex justify-end gap-2">
-                                    <x-button
-                                        icon="o-eye"
-                                        color="secondary"
-                                        size="sm"
-                                        tooltip="View Session Details"
-                                        wire:click="viewSession({{ $session->id }})"
-                                    />
-
-                                    @if ($session->status_data['is_in_progress'] || $session->status_data['is_completed'])
-                                        <x-button
-                                            icon="o-clipboard-document-check"
-                                            color="primary"
-                                            size="sm"
-                                            tooltip="{{ $session->attendance_data['is_taken'] ? 'Update Attendance' : 'Mark Attendance' }}"
-                                            wire:click="markAttendance({{ $session->id }})"
-                                        />
+                                    <button
+                                        wire:click="redirectToSessionShow({{ $session->id }})"
+                                        class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
+                                        title="View Session"
+                                    >
+                                        👁️
+                                    </button>
+                                    @if($sessionStatus['status'] === 'upcoming' || $sessionStatus['status'] === 'ongoing' || $attendanceStats['total'] > 0)
+                                        <button
+                                            wire:click="redirectToTakeAttendance({{ $session->id }})"
+                                            class="p-2 text-green-600 bg-green-100 rounded-md hover:text-green-900 hover:bg-green-200"
+                                            title="{{ $attendanceStats['total'] > 0 ? 'Edit Attendance' : 'Take Attendance' }}"
+                                        >
+                                            📋
+                                        </button>
                                     @endif
                                 </div>
                             </td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="6" class="py-8 text-center">
-                                <div class="flex flex-col items-center justify-center gap-2">
-                                    <x-icon name="o-clipboard-document-check" class="w-16 h-16 text-gray-400" />
-                                    <h3 class="text-lg font-semibold text-gray-600">No sessions found</h3>
-                                    <p class="text-gray-500">No sessions match your current filters for the selected time period</p>
+                            <td colspan="6" class="py-12 text-center">
+                                <div class="flex flex-col items-center justify-center gap-4">
+                                    <x-icon name="o-clipboard-document-check" class="w-20 h-20 text-gray-300" />
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-600">No sessions found</h3>
+                                        <p class="mt-1 text-gray-500">
+                                            @if($search || $subjectFilter || $statusFilter || $dateFilter || $attendanceStatusFilter)
+                                                No sessions match your current filters.
+                                            @else
+                                                You haven't created any sessions yet.
+                                            @endif
+                                        </p>
+                                    </div>
+                                    @if($search || $subjectFilter || $statusFilter || $dateFilter || $attendanceStatusFilter)
+                                        <x-button
+                                            label="Clear Filters"
+                                            wire:click="clearFilters"
+                                            color="secondary"
+                                            size="sm"
+                                        />
+                                    @else
+                                        <x-button
+                                            label="Create Session"
+                                            icon="o-plus"
+                                            link="{{ route('teacher.sessions.create') }}"
+                                            color="primary"
+                                        />
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -737,22 +681,31 @@ new #[Title('Attendance Records')] class extends Component {
         </div>
 
         <!-- Pagination -->
-        @if ($sessions instanceof \Illuminate\Pagination\LengthAwarePaginator)
-            <div class="mt-4">
-                {{ $sessions->links() }}
-            </div>
+        <div class="mt-4">
+            {{ $sessions->links() }}
+        </div>
+
+        <!-- Results summary -->
+        @if($sessions->count() > 0)
+        <div class="pt-3 mt-4 text-sm text-gray-600 border-t">
+            Showing {{ $sessions->firstItem() ?? 0 }} to {{ $sessions->lastItem() ?? 0 }}
+            of {{ $sessions->total() }} sessions
+            @if($search || $subjectFilter || $statusFilter || $dateFilter || $attendanceStatusFilter)
+                (filtered from total)
+            @endif
+        </div>
         @endif
     </x-card>
 
     <!-- Filters drawer -->
-    <x-drawer wire:model="showFilters" title="Advanced Filters" position="right" class="p-4">
+    <x-drawer wire:model="showFilters" title="Filter Attendance" position="right" class="p-4">
         <div class="flex flex-col gap-4 mb-4">
             <div>
                 <x-input
                     label="Search sessions"
                     wire:model.live.debounce="search"
                     icon="o-magnifying-glass"
-                    placeholder="Topic or subject..."
+                    placeholder="Search by subject name or code..."
                     clearable
                 />
             </div>
@@ -760,60 +713,65 @@ new #[Title('Attendance Records')] class extends Component {
             <div>
                 <x-select
                     label="Filter by subject"
-                    placeholder="All subjects"
-                    :options="$subjects"
-                    wire:model.live="subject"
-                    option-label="name"
+                    :options="$subjectOptions"
+                    wire:model.live="subjectFilter"
                     option-value="id"
-                    empty-message="No subjects found"
+                    option-label="name"
+                    placeholder="All subjects"
                 />
             </div>
 
             <div>
                 <x-select
-                    label="Filter by status"
+                    label="Filter by session status"
+                    :options="$statusOptions"
+                    wire:model.live="statusFilter"
+                    option-value="id"
+                    option-label="name"
+                    placeholder="All sessions"
+                />
+            </div>
+
+            <div>
+                <x-select
+                    label="Filter by attendance status"
+                    :options="$attendanceStatusOptions"
+                    wire:model.live="attendanceStatusFilter"
+                    option-value="id"
+                    option-label="name"
                     placeholder="All statuses"
-                    :options="[
-                        ['label' => 'Completed', 'value' => 'completed'],
-                        ['label' => 'In Progress', 'value' => 'in_progress'],
-                        ['label' => 'Upcoming', 'value' => 'upcoming']
-                    ]"
-                    wire:model.live="status"
-                    option-label="label"
-                    option-value="value"
                 />
             </div>
 
             <div>
                 <x-select
-                    label="Time period"
-                    :options="[
-                        ['label' => 'Today', 'value' => 'today'],
-                        ['label' => 'Yesterday', 'value' => 'yesterday'],
-                        ['label' => 'This Week', 'value' => 'week'],
-                        ['label' => 'This Month', 'value' => 'month'],
-                        ['label' => 'This Quarter', 'value' => 'quarter'],
-                        ['label' => 'This Year', 'value' => 'year'],
-                        ['label' => 'All Time', 'value' => 'all'],
-                        ['label' => 'Custom', 'value' => 'custom']
-                    ]"
-                    wire:model.live="period"
-                    option-label="label"
-                    option-value="value"
+                    label="Filter by date"
+                    :options="$dateOptions"
+                    wire:model.live="dateFilter"
+                    option-value="id"
+                    option-label="name"
+                    placeholder="All dates"
                 />
             </div>
 
             <div>
                 <x-select
                     label="Items per page"
-                    :options="[10, 25, 50, 100]"
+                    :options="[
+                        ['id' => 10, 'name' => '10 per page'],
+                        ['id' => 15, 'name' => '15 per page'],
+                        ['id' => 25, 'name' => '25 per page'],
+                        ['id' => 50, 'name' => '50 per page']
+                    ]"
+                    option-value="id"
+                    option-label="name"
                     wire:model.live="perPage"
                 />
             </div>
         </div>
 
         <x-slot:actions>
-            <x-button label="Reset" icon="o-x-mark" wire:click="resetFilters" />
+            <x-button label="Reset" icon="o-x-mark" wire:click="clearFilters" />
             <x-button label="Apply" icon="o-check" wire:click="$set('showFilters', false)" color="primary" />
         </x-slot:actions>
     </x-drawer>

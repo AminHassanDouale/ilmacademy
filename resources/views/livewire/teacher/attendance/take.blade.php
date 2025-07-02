@@ -2,626 +2,664 @@
 
 use App\Models\Session;
 use App\Models\Attendance;
-use App\Models\Subject;
-use App\Models\ChildProfile;
+use App\Models\TeacherProfile;
 use App\Models\SubjectEnrollment;
 use App\Models\ActivityLog;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Title;
-use Livewire\Attributes\Rule;
 use Livewire\Volt\Component;
 use Mary\Traits\Toast;
 
 new #[Title('Take Attendance')] class extends Component {
     use Toast;
 
-    // Session data
+    // Model instances
     public Session $session;
+    public ?TeacherProfile $teacherProfile = null;
 
-    // Session status
-    public bool $isCompleted = false;
-    public bool $isInProgress = false;
+    // Student data and attendance
+    public $enrolledStudents = [];
+    public array $attendanceData = [];
+    public string $notes = '';
 
-    // Attendance data
-    public array $students = [];
-    public array $attendance = [];
-    public array $notes = [];
+    // UI state
+    public bool $isSubmitted = false;
+    public bool $bulkMode = false;
+    public string $bulkStatus = 'present';
 
-    // Statistics
-    public $totalStudents = 0;
-    public $presentCount = 0;
-    public $absentCount = 0;
-    public $lateCount = 0;
-    public $excusedCount = 0;
-    public $attendanceRate = 0;
+    // Attendance status options
+    public array $statusOptions = [
+        'present' => ['label' => 'Present', 'color' => 'bg-green-100 text-green-800', 'icon' => 'o-check-circle'],
+        'absent' => ['label' => 'Absent', 'color' => 'bg-red-100 text-red-800', 'icon' => 'o-x-circle'],
+        'late' => ['label' => 'Late', 'color' => 'bg-yellow-100 text-yellow-800', 'icon' => 'o-clock'],
+        'excused' => ['label' => 'Excused', 'color' => 'bg-blue-100 text-blue-800', 'icon' => 'o-shield-check'],
+    ];
 
+    // Mount the component
     public function mount(Session $session): void
     {
-        $this->session = $session;
+        $this->session = $session->load(['subject', 'subject.curriculum', 'teacherProfile', 'attendances']);
+        $this->teacherProfile = Auth::user()->teacherProfile;
+
+        if (!$this->teacherProfile) {
+            $this->error('Teacher profile not found. Please complete your profile first.');
+            $this->redirect(route('teacher.profile.edit'));
+            return;
+        }
 
         // Check if teacher owns this session
-        $teacherProfile = Auth::user()->teacherProfile;
-        if (!$teacherProfile || $teacherProfile->id !== $session->teacher_profile_id) {
-            $this->error('You are not authorized to manage attendance for this session.');
-            redirect()->route('teacher.sessions.index');
+        if ($this->session->teacher_profile_id !== $this->teacherProfile->id) {
+            $this->error('You are not authorized to take attendance for this session.');
+            $this->redirect(route('teacher.sessions.index'));
             return;
         }
 
-        // Check if session is completed or in progress
-        $now = Carbon::now();
-        $sessionDate = Carbon::parse($session->date);
-        $startTime = Carbon::parse($session->date . ' ' . $session->start_time);
-        $endTime = Carbon::parse($session->date . ' ' . $session->end_time);
+        Log::info('Attendance Take Component Mounted', [
+            'teacher_user_id' => Auth::id(),
+            'session_id' => $session->id,
+            'subject_id' => $session->subject_id,
+            'ip' => request()->ip()
+        ]);
 
-        $this->isInProgress = $startTime->isPast() && $endTime->isFuture();
-        $this->isCompleted = $endTime->isPast();
-
-        if (!$this->isInProgress && !$this->isCompleted) {
-            $this->error('You cannot mark attendance for an upcoming session.');
-            redirect()->route('teacher.sessions.show', $session->id);
-            return;
-        }
-
-        // Load enrolled students
-        $this->loadStudents();
-
-        // Load existing attendance
-        $this->loadAttendance();
-
-        // Calculate statistics
-        $this->calculateStats();
+        $this->loadStudentsAndAttendance();
 
         // Log activity
         ActivityLog::log(
             Auth::id(),
             'access',
-            'Teacher accessed attendance taking for session: ' . $session->topic,
+            "Accessed attendance page for session: {$session->subject->name} on {$session->start_time->format('M d, Y \a\t g:i A')}",
             Session::class,
             $session->id,
-            ['ip' => request()->ip()]
+            [
+                'session_id' => $session->id,
+                'subject_name' => $session->subject->name,
+                'session_start' => $session->start_time->toDateTimeString(),
+                'ip' => request()->ip()
+            ]
         );
     }
 
-    // Load students
-    private function loadStudents(): void
+    protected function loadStudentsAndAttendance(): void
     {
         try {
-            $this->students = [];
+            // Get enrolled students for this subject
+            $this->enrolledStudents = SubjectEnrollment::with(['childProfile', 'childProfile.user'])
+                ->where('subject_id', $this->session->subject_id)
+                ->where('status', 'active')
+                ->get()
+                ->sortBy('childProfile.full_name')
+                ->values();
 
-            if (method_exists($this->session->subject, 'enrolledStudents')) {
-                $enrolledStudents = $this->session->subject->enrolledStudents()
-                    ->with(['childProfile.user'])
-                    ->get();
+            // Initialize attendance data
+            $this->attendanceData = [];
 
-                foreach ($enrolledStudents as $enrollment) {
-                    if ($enrollment->childProfile && $enrollment->childProfile->user) {
-                        $this->students[] = [
-                            'id' => $enrollment->childProfile->id,
-                            'name' => $enrollment->childProfile->user->name,
-                            'photo' => $enrollment->childProfile->photo,
-                            'profile_photo_url' => $enrollment->childProfile->user->profile_photo_url ?? null,
-                            'program' => $enrollment->programEnrollment->program->name ?? 'Unknown Program'
-                        ];
-                    }
-                }
-            } else {
-                // Fallback to get students from subject enrollments
-                $subjectEnrollments = SubjectEnrollment::where('subject_id', $this->session->subject_id)
-                    ->with(['programEnrollment.childProfile.user', 'programEnrollment.program'])
-                    ->get();
+            foreach ($this->enrolledStudents as $enrollment) {
+                $studentId = $enrollment->child_profile_id;
 
-                foreach ($subjectEnrollments as $enrollment) {
-                    if ($enrollment->programEnrollment && $enrollment->programEnrollment->childProfile) {
-                        $child = $enrollment->programEnrollment->childProfile;
-                        if ($child->user) {
-                            $this->students[] = [
-                                'id' => $child->id,
-                                'name' => $child->user->name,
-                                'photo' => $child->photo,
-                                'profile_photo_url' => $child->user->profile_photo_url ?? null,
-                                'program' => $enrollment->programEnrollment->program->name ?? 'Unknown Program'
-                            ];
-                        }
-                    }
-                }
+                // Check if attendance already exists
+                $existingAttendance = $this->session->attendances
+                    ->where('child_profile_id', $studentId)
+                    ->first();
+
+                $this->attendanceData[$studentId] = [
+                    'status' => $existingAttendance ? $existingAttendance->status : 'present',
+                    'notes' => $existingAttendance ? $existingAttendance->notes : '',
+                    'check_in_time' => $existingAttendance ? $existingAttendance->check_in_time?->format('H:i') : now()->format('H:i'),
+                    'existing_id' => $existingAttendance ? $existingAttendance->id : null,
+                ];
             }
 
-            // Sort students by name
-            usort($this->students, function($a, $b) {
-                return $a['name'] <=> $b['name'];
-            });
+            // Check if attendance was already submitted
+            $this->isSubmitted = $this->session->attendances->count() > 0;
 
-            $this->totalStudents = count($this->students);
+            Log::info('Students and Attendance Data Loaded', [
+                'session_id' => $this->session->id,
+                'enrolled_students_count' => $this->enrolledStudents->count(),
+                'existing_attendance_count' => $this->session->attendances->count(),
+                'is_submitted' => $this->isSubmitted
+            ]);
 
-            // Initialize attendance array with default values
-            foreach ($this->students as $student) {
-                $this->attendance[$student['id']] = 'not_marked';
-                $this->notes[$student['id']] = '';
-            }
         } catch (\Exception $e) {
-            // Log error
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error loading students: ' . $e->getMessage(),
-                Session::class,
-                $this->session->id,
-                ['ip' => request()->ip()]
-            );
+            Log::error('Failed to load students and attendance data', [
+                'session_id' => $this->session->id,
+                'error' => $e->getMessage()
+            ]);
 
-            $this->error('An error occurred while loading student data.');
+            $this->enrolledStudents = collect();
+            $this->attendanceData = [];
         }
     }
 
-    // Load existing attendance records
-    private function loadAttendance(): void
+    // Update individual student attendance
+    public function updateAttendance(int $studentId, string $status): void
     {
-        try {
-            $attendanceRecords = Attendance::where('session_id', $this->session->id)->get();
+        if (isset($this->attendanceData[$studentId])) {
+            $this->attendanceData[$studentId]['status'] = $status;
 
-            foreach ($attendanceRecords as $record) {
-                if (isset($this->attendance[$record->child_profile_id])) {
-                    $this->attendance[$record->child_profile_id] = $record->status;
-                    $this->notes[$record->child_profile_id] = $record->notes ?? '';
-                }
+            // Update check-in time if marking as present or late
+            if (in_array($status, ['present', 'late'])) {
+                $this->attendanceData[$studentId]['check_in_time'] = now()->format('H:i');
             }
 
-            $this->calculateStats();
-        } catch (\Exception $e) {
-            // Log error
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error loading attendance records: ' . $e->getMessage(),
-                Session::class,
-                $this->session->id,
-                ['ip' => request()->ip()]
-            );
-
-            $this->error('An error occurred while loading attendance records.');
+            Log::debug('Attendance Updated', [
+                'student_id' => $studentId,
+                'status' => $status,
+                'session_id' => $this->session->id
+            ]);
         }
     }
 
-    // Calculate attendance statistics
-    private function calculateStats(): void
+    // Bulk update attendance for all students
+    public function bulkUpdateAttendance(): void
     {
-        $this->presentCount = 0;
-        $this->absentCount = 0;
-        $this->lateCount = 0;
-        $this->excusedCount = 0;
+        foreach ($this->attendanceData as $studentId => $data) {
+            $this->attendanceData[$studentId]['status'] = $this->bulkStatus;
 
-        foreach ($this->attendance as $status) {
-            if ($status === 'present') {
-                $this->presentCount++;
-            } elseif ($status === 'absent') {
-                $this->absentCount++;
-            } elseif ($status === 'late') {
-                $this->lateCount++;
-            } elseif ($status === 'excused') {
-                $this->excusedCount++;
+            // Update check-in time if marking as present or late
+            if (in_array($this->bulkStatus, ['present', 'late'])) {
+                $this->attendanceData[$studentId]['check_in_time'] = now()->format('H:i');
             }
         }
 
-        $this->attendanceRate = $this->totalStudents > 0
-            ? round((($this->presentCount + $this->lateCount) / $this->totalStudents) * 100)
-            : 0;
-    }
+        $this->bulkMode = false;
 
-    // Update attendance status for a student
-    public function updateStatus($studentId, $status): void
-    {
-        if (isset($this->attendance[$studentId])) {
-            $this->attendance[$studentId] = $status;
-            $this->calculateStats();
-        }
-    }
+        $this->success("All students marked as {$this->statusOptions[$this->bulkStatus]['label']}");
 
-    // Update note for a student
-    public function updateNote($studentId, $note): void
-    {
-        if (isset($this->notes[$studentId])) {
-            $this->notes[$studentId] = $note;
-        }
-    }
-
-    // Mark all students as present
-    public function markAllPresent(): void
-    {
-        foreach ($this->students as $student) {
-            $this->attendance[$student['id']] = 'present';
-        }
-        $this->calculateStats();
-        $this->success('All students marked as present.');
-    }
-
-    // Mark all students as absent
-    public function markAllAbsent(): void
-    {
-        foreach ($this->students as $student) {
-            $this->attendance[$student['id']] = 'absent';
-        }
-        $this->calculateStats();
-        $this->success('All students marked as absent.');
-    }
-
-    // Mark all unmarked students as absent
-    public function markRemainingAbsent(): void
-    {
-        foreach ($this->students as $student) {
-            if ($this->attendance[$student['id']] === 'not_marked') {
-                $this->attendance[$student['id']] = 'absent';
-            }
-        }
-        $this->calculateStats();
-        $this->success('Unmarked students marked as absent.');
+        Log::info('Bulk Attendance Update', [
+            'session_id' => $this->session->id,
+            'bulk_status' => $this->bulkStatus,
+            'student_count' => count($this->attendanceData)
+        ]);
     }
 
     // Save attendance
     public function saveAttendance(): void
     {
+        Log::info('Attendance Save Started', [
+            'teacher_user_id' => Auth::id(),
+            'session_id' => $this->session->id,
+            'student_count' => count($this->attendanceData)
+        ]);
+
         try {
-            $markedCount = 0;
+            DB::beginTransaction();
+            Log::debug('Database Transaction Started');
 
-            foreach ($this->students as $student) {
-                $studentId = $student['id'];
-                $status = $this->attendance[$studentId];
-                $note = $this->notes[$studentId] ?? '';
+            $createdCount = 0;
+            $updatedCount = 0;
+            $summary = [
+                'present' => 0,
+                'absent' => 0,
+                'late' => 0,
+                'excused' => 0
+            ];
 
-                // Skip if not marked
-                if ($status === 'not_marked') {
-                    continue;
+            foreach ($this->attendanceData as $studentId => $data) {
+                // Validate check-in time format
+                $checkInTime = null;
+                if (!empty($data['check_in_time'])) {
+                    try {
+                        $checkInTime = \Carbon\Carbon::parse($this->session->start_time->format('Y-m-d') . ' ' . $data['check_in_time']);
+                    } catch (\Exception $e) {
+                        $checkInTime = $this->session->start_time;
+                    }
                 }
 
-                $markedCount++;
+                $attendanceData = [
+                    'session_id' => $this->session->id,
+                    'child_profile_id' => $studentId,
+                    'status' => $data['status'],
+                    'notes' => $data['notes'] ?: null,
+                    'check_in_time' => $checkInTime,
+                ];
 
-                // Check if record exists
-                $record = Attendance::where('session_id', $this->session->id)
-                    ->where('child_profile_id', $studentId)
-                    ->first();
-
-                if ($record) {
-                    // Update existing record
-                    $record->update([
-                        'status' => $status,
-                        'notes' => $note,
-                        'updated_at' => now(),
-                    ]);
+                if ($data['existing_id']) {
+                    // Update existing attendance
+                    Attendance::where('id', $data['existing_id'])->update($attendanceData);
+                    $updatedCount++;
                 } else {
-                    // Create new record
-                    Attendance::create([
-                        'session_id' => $this->session->id,
-                        'child_profile_id' => $studentId,
-                        'status' => $status,
-                        'notes' => $note,
-                    ]);
+                    // Create new attendance
+                    Attendance::create($attendanceData);
+                    $createdCount++;
                 }
-            }
 
-            // Check if all students are marked
-            if ($markedCount === 0) {
-                $this->error('Please mark at least one student\'s attendance before saving.');
-                return;
-            }
-
-            // Update session status if completed
-            if ($this->isCompleted && $this->session->status !== 'completed') {
-                $this->session->update([
-                    'status' => 'completed'
-                ]);
+                // Count by status for summary
+                $summary[$data['status']]++;
             }
 
             // Log activity
+            $description = "Recorded attendance for {$this->session->subject->name} session on {$this->session->start_time->format('M d, Y')}";
+            if ($updatedCount > 0) {
+                $description .= " (Updated existing records)";
+            }
+
             ActivityLog::log(
                 Auth::id(),
-                'update',
-                'Teacher marked attendance for session: ' . $this->session->topic,
+                $this->isSubmitted ? 'update' : 'create',
+                $description,
                 Session::class,
                 $this->session->id,
-                ['ip' => request()->ip()]
+                [
+                    'session_id' => $this->session->id,
+                    'subject_name' => $this->session->subject->name,
+                    'created_count' => $createdCount,
+                    'updated_count' => $updatedCount,
+                    'attendance_summary' => $summary,
+                    'total_students' => count($this->attendanceData),
+                    'session_start' => $this->session->start_time->toDateTimeString(),
+                ]
             );
 
-            $this->success('Attendance saved successfully.');
+            DB::commit();
+            Log::info('Database Transaction Committed');
 
-            // Redirect to session details
-            redirect()->route('teacher.sessions.show', $this->session->id);
+            // Update submitted status
+            $this->isSubmitted = true;
+
+            // Show success message
+            if ($updatedCount > 0) {
+                $this->success("Attendance updated successfully for {$this->enrolledStudents->count()} students.");
+            } else {
+                $this->success("Attendance recorded successfully for {$this->enrolledStudents->count()} students.");
+            }
+
+            Log::info('Attendance Save Completed', [
+                'session_id' => $this->session->id,
+                'created_count' => $createdCount,
+                'updated_count' => $updatedCount,
+                'summary' => $summary
+            ]);
+
         } catch (\Exception $e) {
-            // Log error
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error saving attendance: ' . $e->getMessage(),
-                Session::class,
-                $this->session->id,
-                ['ip' => request()->ip()]
-            );
+            DB::rollBack();
+            Log::error('Attendance Save Failed', [
+                'error_message' => $e->getMessage(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'stack_trace' => $e->getTraceAsString(),
+                'session_id' => $this->session->id,
+                'student_count' => count($this->attendanceData)
+            ]);
 
-            $this->error('An error occurred while saving attendance records.');
+            $this->error("An error occurred while saving attendance: {$e->getMessage()}");
         }
     }
 
-    // Format date in d/m/Y format
-    public function formatDate($date): string
+    // Get attendance summary
+    public function getAttendanceSummaryProperty(): array
     {
-        return Carbon::parse($date)->format('d/m/Y');
+        $summary = [
+            'present' => 0,
+            'absent' => 0,
+            'late' => 0,
+            'excused' => 0,
+            'total' => count($this->attendanceData)
+        ];
+
+        foreach ($this->attendanceData as $data) {
+            $summary[$data['status']]++;
+        }
+
+        $attendingCount = $summary['present'] + $summary['late'];
+        $summary['attendance_rate'] = $summary['total'] > 0 ? round(($attendingCount / $summary['total']) * 100, 1) : 0;
+
+        return $summary;
     }
 
-    // Format time for display
-    public function formatTime($time): string
+    // Get session status
+    public function getSessionStatusProperty(): array
     {
-        return Carbon::parse($time)->format('H:i');
+        $now = now();
+
+        if ($this->session->start_time > $now) {
+            return ['status' => 'upcoming', 'color' => 'bg-blue-100 text-blue-800', 'text' => 'Upcoming'];
+        } elseif ($this->session->start_time <= $now && $this->session->end_time >= $now) {
+            return ['status' => 'ongoing', 'color' => 'bg-green-100 text-green-800', 'text' => 'Ongoing'];
+        } else {
+            return ['status' => 'completed', 'color' => 'bg-gray-100 text-gray-600', 'text' => 'Completed'];
+        }
     }
-};
-?>
+
+    public function with(): array
+    {
+        return [
+            'attendanceSummary' => $this->attendanceSummary,
+            'sessionStatus' => $this->sessionStatus,
+        ];
+    }
+};?>
 
 <div>
     <!-- Page header -->
-    <x-header title="Take Attendance" separator progress-indicator>
-        <x-slot:subtitle>
-            {{ $session->topic }} | {{ formatDate($session->date) }} | {{ formatTime($session->start_time) }} - {{ formatTime($session->end_time) }}
-        </x-slot:subtitle>
+    <x-header title="Take Attendance: {{ $session->subject->name }}" separator>
+        <x-slot:middle class="!justify-end">
+            <!-- Session Status -->
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium {{ $sessionStatus['color'] }}">
+                {{ $sessionStatus['text'] }}
+            </span>
+
+            @if($isSubmitted)
+                <span class="inline-flex items-center px-3 py-1 ml-2 text-sm font-medium text-green-800 bg-green-100 rounded-full">
+                    <x-icon name="o-check-circle" class="w-4 h-4 mr-1" />
+                    Submitted
+                </span>
+            @endif
+        </x-slot:middle>
 
         <x-slot:actions>
-            <div class="flex flex-wrap gap-2">
-                <x-button
-                    label="All Present"
-                    icon="o-check"
-                    color="success"
-                    wire:click="markAllPresent"
-                    wire:loading.attr="disabled"
-                    size="sm"
-                />
-
-                <x-button
-                    label="All Absent"
-                    icon="o-x-mark"
-                    color="error"
-                    wire:click="markAllAbsent"
-                    wire:loading.attr="disabled"
-                    size="sm"
-                />
-
-                <x-button
-                    label="Mark Unmarked Absent"
-                    icon="o-exclamation-circle"
-                    color="warning"
-                    wire:click="markRemainingAbsent"
-                    wire:loading.attr="disabled"
-                    size="sm"
-                />
-
-                <x-button
-                    label="Save Attendance"
-                    icon="o-check-circle"
-                    class="btn-primary"
-                    wire:click="saveAttendance"
-                    wire:loading.attr="disabled"
-                />
-            </div>
+            <x-button
+                label="View Session"
+                icon="o-eye"
+                link="{{ route('teacher.sessions.show', $session->id) }}"
+                class="btn-ghost"
+            />
+            <x-button
+                label="Back to Sessions"
+                icon="o-arrow-left"
+                link="{{ route('teacher.sessions.index') }}"
+                class="btn-ghost"
+            />
         </x-slot:actions>
     </x-header>
 
-    <!-- Session Status -->
-    <div class="mb-6">
-        @if ($isInProgress)
-            <div class="p-4 shadow-lg alert bg-warning text-warning-content">
-                <div>
-                    <x-icon name="o-clock" class="w-6 h-6" />
-                    <span>This session is currently in progress. You can update attendance in real-time.</span>
-                </div>
-            </div>
-        @elseif ($isCompleted)
-            <div class="p-4 shadow-lg alert bg-success text-success-content">
-                <div>
-                    <x-icon name="o-check-circle" class="w-6 h-6" />
-                    <span>This session was completed on {{ formatDate($session->date) }}. You can still update attendance records.</span>
-                </div>
-            </div>
-        @endif
-    </div>
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-4">
+        <!-- Left column (3/4) - Attendance Form -->
+        <div class="space-y-6 lg:col-span-3">
+            <!-- Session Information -->
+            <x-card title="Session Information">
+                <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <div>
+                        <div class="text-sm font-medium text-gray-500">Subject</div>
+                        <div class="font-semibold">{{ $session->subject->name }}</div>
+                        <div class="text-sm text-gray-600">{{ $session->subject->code }}</div>
+                    </div>
 
-    <!-- Attendance Progress -->
-    <x-card class="mb-6">
-        <div class="flex flex-col gap-4">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                    <span class="text-lg font-semibold">Attendance Progress</span>
-                    <span class="font-medium {{ $attendanceRate >= 75 ? 'text-success' : ($attendanceRate >= 50 ? 'text-warning' : 'text-error') }}">
-                        {{ $attendanceRate }}%
-                    </span>
-                </div>
-                <div class="flex gap-1">
-                    <span class="font-medium">{{ $presentCount + $lateCount + $absentCount + $excusedCount }}/{{ $totalStudents }}</span>
-                    <span class="text-gray-500">students marked</span>
-                </div>
-            </div>
+                    <div>
+                        <div class="text-sm font-medium text-gray-500">Date & Time</div>
+                        <div class="font-semibold">{{ $session->start_time->format('M d, Y') }}</div>
+                        <div class="text-sm text-gray-600">
+                            {{ $session->start_time->format('g:i A') }}
+                            @if($session->end_time)
+                                - {{ $session->end_time->format('g:i A') }}
+                            @endif
+                        </div>
+                    </div>
 
-            <div class="w-full h-4 rounded-full bg-base-300">
-                @if ($totalStudents > 0)
-                    <div class="h-full rounded-full bg-success" style="width: {{ ($presentCount / $totalStudents) * 100 }}%"></div>
-                @endif
-            </div>
-
-            <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
-                <div class="flex items-center gap-2">
-                    <div class="w-4 h-4 rounded-full bg-success"></div>
-                    <span>{{ $presentCount }} Present</span>
+                    <div>
+                        <div class="text-sm font-medium text-gray-500">Students Enrolled</div>
+                        <div class="text-2xl font-bold text-blue-600">{{ $enrolledStudents->count() }}</div>
+                    </div>
                 </div>
-                <div class="flex items-center gap-2">
-                    <div class="w-4 h-4 rounded-full bg-error"></div>
-                    <span>{{ $absentCount }} Absent</span>
-                </div>
-                <div class="flex items-center gap-2">
-                    <div class="w-4 h-4 rounded-full bg-warning"></div>
-                    <span>{{ $lateCount }} Late</span>
-                </div>
-                <div class="flex items-center gap-2">
-                    <div class="w-4 h-4 rounded-full bg-info"></div>
-                    <span>{{ $excusedCount }} Excused</span>
-                </div>
-            </div>
-        </div>
-    </x-card>
+            </x-card>
 
-    <!-- Search and Sort -->
-    <div class="grid gap-4 mb-6 md:flex md:justify-between">
-        <x-input placeholder="Search students..." id="student-search" onkeyup="filterStudents()" class="w-full md:max-w-xs" />
+            <!-- Bulk Actions -->
+            <x-card title="Quick Actions">
+                <div class="flex flex-wrap gap-4">
+                    @if(!$bulkMode)
+                        <x-button
+                            label="Bulk Actions"
+                            icon="o-squares-plus"
+                            wire:click="$set('bulkMode', true)"
+                            class="btn-outline"
+                        />
+                    @else
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="text-sm font-medium">Mark all as:</span>
+                            @foreach($statusOptions as $status => $config)
+                                <x-button
+                                    :label="$config['label']"
+                                    wire:click="$set('bulkStatus', '{{ $status }}')"
+                                    class="btn-xs {{ $bulkStatus === $status ? 'btn-primary' : 'btn-outline' }}"
+                                />
+                            @endforeach
+                            <x-button
+                                label="Apply"
+                                icon="o-check"
+                                wire:click="bulkUpdateAttendance"
+                                class="btn-sm btn-success"
+                            />
+                            <x-button
+                                label="Cancel"
+                                icon="o-x-mark"
+                                wire:click="$set('bulkMode', false)"
+                                class="btn-sm btn-ghost"
+                            />
+                        </div>
+                    @endif
 
-        <x-select
-            placeholder="Filter by status"
-            id="status-filter"
-            onchange="filterStudents()"
-            class="w-full md:max-w-xs"
-            :options="[
-                ['label' => 'All Students', 'value' => 'all'],
-                ['label' => 'Marked Present', 'value' => 'present'],
-                ['label' => 'Marked Absent', 'value' => 'absent'],
-                ['label' => 'Marked Late', 'value' => 'late'],
-                ['label' => 'Marked Excused', 'value' => 'excused'],
-                ['label' => 'Not Marked', 'value' => 'not_marked'],
-            ]"
-            option-label="label"
-            option-value="value"
-        />
-    </div>
+                    <div class="ml-auto">
+                        <x-button
+                            label="{{ $isSubmitted ? 'Update Attendance' : 'Save Attendance' }}"
+                            icon="o-check"
+                            wire:click="saveAttendance"
+                            class="btn-primary"
+                            wire:confirm="Are you sure you want to {{ $isSubmitted ? 'update' : 'save' }} attendance for this session?"
+                        />
+                    </div>
+                </div>
+            </x-card>
 
-    <!-- Students List -->
-    <x-card title="Student Attendance">
-        @if (count($students) > 0)
-            <div class="overflow-x-auto">
-                <table class="table table-zebra" id="students-table">
-                    <thead>
-                        <tr>
-                            <th>Student</th>
-                            <th>Program</th>
-                            <th>Status</th>
-                            <th>Notes</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach ($students as $student)
-                            <tr class="hover student-row" data-name="{{ strtolower($student['name']) }}" data-status="{{ $attendance[$student['id']] }}">
-                                <td>
-                                    <div class="flex items-center gap-3">
+            <!-- Students Attendance List -->
+            <x-card title="Student Attendance">
+                @if($enrolledStudents->count() > 0)
+                    <div class="space-y-4">
+                        @foreach($enrolledStudents as $enrollment)
+                            @php
+                                $student = $enrollment->childProfile;
+                                $studentId = $student->id;
+                                $attendance = $attendanceData[$studentId] ?? ['status' => 'present', 'notes' => '', 'check_in_time' => now()->format('H:i')];
+                            @endphp
+                            <div class="p-4 border rounded-lg {{ $attendance['status'] === 'present' ? 'border-green-200 bg-green-50' : ($attendance['status'] === 'absent' ? 'border-red-200 bg-red-50' : ($attendance['status'] === 'late' ? 'border-yellow-200 bg-yellow-50' : 'border-blue-200 bg-blue-50')) }}">
+                                <div class="flex items-start justify-between">
+                                    <!-- Student Info -->
+                                    <div class="flex items-center space-x-3">
                                         <div class="avatar">
-                                            <div class="w-10 h-10 mask mask-squircle">
-                                                @if ($student['photo'])
-                                                    <img src="{{ asset('storage/' . $student['photo']) }}" alt="{{ $student['name'] }}">
-                                                @elseif ($student['profile_photo_url'])
-                                                    <img src="{{ $student['profile_photo_url'] }}" alt="{{ $student['name'] }}">
-                                                @else
-                                                    <img src="https://ui-avatars.com/api/?name={{ urlencode($student['name']) }}&color=7F9CF5&background=EBF4FF" alt="{{ $student['name'] }}">
-                                                @endif
+                                            <div class="w-12 h-12 rounded-full">
+                                                <img src="{{ $student->user->profile_photo_url ?? 'https://ui-avatars.com/api/?name=' . urlencode($student->full_name) }}" alt="{{ $student->full_name }}" />
                                             </div>
                                         </div>
                                         <div>
-                                            <div class="font-bold">{{ $student['name'] }}</div>
+                                            <div class="font-semibold">{{ $student->full_name }}</div>
+                                            <div class="text-sm text-gray-500">ID: {{ $student->id }}</div>
+                                            @if($student->date_of_birth)
+                                                <div class="text-xs text-gray-400">{{ $student->date_of_birth->format('M d, Y') }}</div>
+                                            @endif
                                         </div>
                                     </div>
-                                </td>
-                                <td>{{ $student['program'] }}</td>
-                                <td>
-                                    <div class="flex flex-wrap items-center gap-2">
-                                        <label class="gap-1 cursor-pointer label">
+
+                                    <!-- Attendance Controls -->
+                                    <div class="flex flex-col space-y-3">
+                                        <!-- Status Buttons -->
+                                        <div class="flex space-x-2">
+                                            @foreach($statusOptions as $status => $config)
+                                                <button
+                                                    wire:click="updateAttendance({{ $studentId }}, '{{ $status }}')"
+                                                    class="flex items-center px-3 py-2 text-xs font-medium rounded-md transition-colors {{ $attendance['status'] === $status ? $config['color'] : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}"
+                                                    title="{{ $config['label'] }}"
+                                                >
+                                                    <x-icon name="{{ $config['icon'] }}" class="w-4 h-4 mr-1" />
+                                                    {{ $config['label'] }}
+                                                </button>
+                                            @endforeach
+                                        </div>
+
+                                        <!-- Check-in Time (for present/late students) -->
+                                        @if(in_array($attendance['status'], ['present', 'late']))
+                                            <div class="flex items-center space-x-2">
+                                                <label class="text-xs text-gray-500">Check-in:</label>
+                                                <input
+                                                    type="time"
+                                                    wire:model.live="attendanceData.{{ $studentId }}.check_in_time"
+                                                    class="px-2 py-1 text-xs border border-gray-300 rounded"
+                                                />
+                                            </div>
+                                        @endif
+
+                                        <!-- Notes -->
+                                        <div>
                                             <input
-                                                type="radio"
-                                                name="status_{{ $student['id'] }}"
-                                                class="radio radio-success radio-sm"
-                                                value="present"
-                                                {{ $attendance[$student['id']] === 'present' ? 'checked' : '' }}
-                                                wire:model.live="attendance.{{ $student['id'] }}"
-                                                wire:change="updateStatus({{ $student['id'] }}, $event.target.value)"
+                                                type="text"
+                                                wire:model.live="attendanceData.{{ $studentId }}.notes"
+                                                placeholder="Add notes (optional)"
+                                                class="w-full px-2 py-1 text-xs border border-gray-300 rounded"
                                             />
-                                            <span class="text-success">Present</span>
-                                        </label>
-                                        <label class="gap-1 cursor-pointer label">
-                                            <input
-                                                type="radio"
-                                                name="status_{{ $student['id'] }}"
-                                                class="radio radio-error radio-sm"
-                                                value="absent"
-                                                {{ $attendance[$student['id']] === 'absent' ? 'checked' : '' }}
-                                                wire:model.live="attendance.{{ $student['id'] }}"
-                                                wire:change="updateStatus({{ $student['id'] }}, $event.target.value)"
-                                            />
-                                            <span class="text-error">Absent</span>
-                                        </label>
-                                        <label class="gap-1 cursor-pointer label">
-                                            <input
-                                                type="radio"
-                                                name="status_{{ $student['id'] }}"
-                                                class="radio radio-warning radio-sm"
-                                                value="late"
-                                                {{ $attendance[$student['id']] === 'late' ? 'checked' : '' }}
-                                                wire:model.live="attendance.{{ $student['id'] }}"
-                                                wire:change="updateStatus({{ $student['id'] }}, $event.target.value)"
-                                            />
-                                            <span class="text-warning">Late</span>
-                                        </label>
-                                        <label class="gap-1 cursor-pointer label">
-                                            <input
-                                                type="radio"
-                                                name="status_{{ $student['id'] }}"
-                                                class="radio radio-info radio-sm"
-                                                value="excused"
-                                                {{ $attendance[$student['id']] === 'excused' ? 'checked' : '' }}
-                                                wire:model.live="attendance.{{ $student['id'] }}"
-                                                wire:change="updateStatus({{ $student['id'] }}, $event.target.value)"
-                                            />
-                                            <span class="text-info">Excused</span>
-                                        </label>
+                                        </div>
                                     </div>
-                                </td>
-                                <td>
-                                    <input
-                                        type="text"
-                                        class="w-full input input-bordered input-sm"
-                                        placeholder="Add note (optional)"
-                                        value="{{ $notes[$student['id']] }}"
-                                        wire:model.lazy="notes.{{ $student['id'] }}"
-                                        wire:change="updateNote({{ $student['id'] }}, $event.target.value)"
-                                    />
-                                </td>
-                            </tr>
+                                </div>
+                            </div>
                         @endforeach
-                    </tbody>
-                </table>
-            </div>
+                    </div>
 
-            <div class="flex justify-end mt-6">
-                <x-button
-                    label="Save Attendance"
-                    icon="o-check-circle"
-                    class="btn-primary"
-                    wire:click="saveAttendance"
-                    wire:loading.attr="disabled"
-                />
-            </div>
+                    <!-- Save Button -->
+                    <div class="pt-6 text-center border-t">
+                        <x-button
+                            label="{{ $isSubmitted ? 'Update Attendance' : 'Save Attendance' }}"
+                            icon="o-check"
+                            wire:click="saveAttendance"
+                            class="btn-primary btn-lg"
+                            wire:confirm="Are you sure you want to {{ $isSubmitted ? 'update' : 'save' }} attendance for this session?"
+                        />
+                    </div>
+                @else
+                    <div class="py-8 text-center">
+                        <x-icon name="o-users" class="w-12 h-12 mx-auto text-gray-300" />
+                        <div class="mt-2 text-sm text-gray-500">No students enrolled in this subject</div>
+                        <p class="mt-1 text-xs text-gray-400">Contact the administrator to enroll students</p>
+                    </div>
+                @endif
+            </x-card>
+        </div>
 
-            <!-- Search and Filter Script -->
-            <script>
-                function filterStudents() {
-                    const searchText = document.getElementById('student-search').value.toLowerCase();
-                    const statusFilter = document.getElementById('status-filter').value;
-                    const rows = document.querySelectorAll('.student-row');
+        <!-- Right column (1/4) - Summary and Info -->
+        <div class="space-y-6">
+            <!-- Attendance Summary -->
+            <x-card title="Attendance Summary">
+                <div class="space-y-4">
+                    <!-- Summary Stats -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="p-3 text-center rounded-lg bg-green-50">
+                            <div class="text-lg font-bold text-green-600">{{ $attendanceSummary['present'] }}</div>
+                            <div class="text-xs text-green-600">Present</div>
+                        </div>
 
-                    rows.forEach(row => {
-                        const name = row.getAttribute('data-name');
-                        const status = row.getAttribute('data-status');
+                        <div class="p-3 text-center rounded-lg bg-yellow-50">
+                            <div class="text-lg font-bold text-yellow-600">{{ $attendanceSummary['late'] }}</div>
+                            <div class="text-xs text-yellow-600">Late</div>
+                        </div>
 
-                        const nameMatch = name.includes(searchText);
-                        const statusMatch = (statusFilter === 'all' || status === statusFilter);
+                        <div class="p-3 text-center rounded-lg bg-red-50">
+                            <div class="text-lg font-bold text-red-600">{{ $attendanceSummary['absent'] }}</div>
+                            <div class="text-xs text-red-600">Absent</div>
+                        </div>
 
-                        row.style.display = (nameMatch && statusMatch) ? '' : 'none';
-                    });
-                }
-            </script>
-        @else
-            <div class="flex flex-col items-center justify-center py-8">
-                <x-icon name="o-users" class="w-16 h-16 text-gray-400" />
-                <h3 class="mt-2 text-lg font-semibold text-gray-600">No students found</h3>
-                <p class="mt-1 text-sm text-gray-500">There are no students enrolled in this subject.</p>
-            </div>
-        @endif
-    </x-card>
+                        <div class="p-3 text-center rounded-lg bg-blue-50">
+                            <div class="text-lg font-bold text-blue-600">{{ $attendanceSummary['excused'] }}</div>
+                            <div class="text-xs text-blue-600">Excused</div>
+                        </div>
+                    </div>
+
+                    <!-- Attendance Rate -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-medium text-gray-700">Attendance Rate</span>
+                            <span class="text-sm font-bold">{{ $attendanceSummary['attendance_rate'] }}%</span>
+                        </div>
+                        <div class="w-full h-2 bg-gray-200 rounded-full">
+                            <div
+                                class="h-2 rounded-full {{ $attendanceSummary['attendance_rate'] >= 80 ? 'bg-green-600' : ($attendanceSummary['attendance_rate'] >= 60 ? 'bg-yellow-600' : 'bg-red-600') }}"
+                                style="width: {{ $attendanceSummary['attendance_rate'] }}%"
+                            ></div>
+                        </div>
+                    </div>
+
+                    <!-- Total Count -->
+                    <div class="pt-3 border-t">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-gray-900">{{ $attendanceSummary['total'] }}</div>
+                            <div class="text-sm text-gray-500">Total Students</div>
+                        </div>
+                    </div>
+                </div>
+            </x-card>
+
+            <!-- Status Legend -->
+            <x-card title="Status Guide">
+                <div class="space-y-3 text-sm">
+                    @foreach($statusOptions as $status => $config)
+                        <div class="flex items-center">
+                            <x-icon name="{{ $config['icon'] }}" class="w-4 h-4 mr-2" />
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium {{ $config['color'] }} mr-2">
+                                {{ $config['label'] }}
+                            </span>
+                            <span class="text-gray-600">
+                                {{ match($status) {
+                                    'present' => 'Student attended on time',
+                                    'late' => 'Student arrived after start time',
+                                    'absent' => 'Student did not attend',
+                                    'excused' => 'Approved absence'
+                                } }}
+                            </span>
+                        </div>
+                    @endforeach
+                </div>
+            </x-card>
+
+            <!-- Quick Actions -->
+            <x-card title="Quick Actions">
+                <div class="space-y-2">
+                    <x-button
+                        label="View Session Details"
+                        icon="o-eye"
+                        link="{{ route('teacher.sessions.show', $session->id) }}"
+                        class="justify-start w-full btn-ghost btn-sm"
+                    />
+                    <x-button
+                        label="Edit Session"
+                        icon="o-pencil"
+                        link="{{ route('teacher.sessions.edit', $session->id) }}"
+                        class="justify-start w-full btn-ghost btn-sm"
+                    />
+                    <x-button
+                        label="All Sessions"
+                        icon="o-presentation-chart-line"
+                        link="{{ route('teacher.sessions.index') }}"
+                        class="justify-start w-full btn-ghost btn-sm"
+                    />
+                    <x-button
+                        label="Attendance Overview"
+                        icon="o-clipboard-document-check"
+                        link="{{ route('teacher.attendance.index') }}"
+                        class="justify-start w-full btn-ghost btn-sm"
+                    />
+                </div>
+            </x-card>
+
+            <!-- Tips -->
+            <x-card title="Tips">
+                <div class="space-y-3 text-xs text-gray-600">
+                    <div>
+                        <div class="font-semibold">Quick Marking</div>
+                        <p>Use bulk actions to quickly mark all students with the same status, then adjust individual cases.</p>
+                    </div>
+
+                    <div>
+                        <div class="font-semibold">Check-in Times</div>
+                        <p>Adjust check-in times for late students to record when they actually arrived.</p>
+                    </div>
+
+                    <div>
+                        <div class="font-semibold">Notes</div>
+                        <p>Add notes for absences, late arrivals, or any special circumstances.</p>
+                    </div>
+
+                    <div>
+                        <div class="font-semibold">Updates</div>
+                        <p>You can update attendance records after saving if needed. All changes are logged.</p>
+                    </div>
+                </div>
+            </x-card>
+        </div>
+    </div>
 </div>

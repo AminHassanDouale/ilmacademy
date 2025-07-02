@@ -1,510 +1,675 @@
 <?php
 
+use App\Models\User;
 use App\Models\TeacherProfile;
 use App\Models\Subject;
-use App\Models\User;
 use App\Models\ActivityLog;
-use App\Models\SubjectEnrollment;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
-use Livewire\WithFileUploads;
-use Livewire\WithPagination;
 use Mary\Traits\Toast;
 
-new #[Title('Edit Profile')] class extends Component {
-    use WithFileUploads;
-    use WithPagination;
+new #[Title('Edit Teacher Profile')] class extends Component {
     use Toast;
 
-    // User and profile data
-    public $user;
-    public $teacherProfile;
+    // Current user and teacher profile
+    public User $user;
+    public ?TeacherProfile $teacherProfile = null;
 
-    // Form fields
-    public $name;
-    public $email;
-    public $bio;
-    public $specialization;
-    public $phone;
-    public $photo;
-    public $newPhoto;
+    // Form data
+    public string $name = '';
+    public string $email = '';
+    public ?string $password = '';
+    public ?string $password_confirmation = '';
+    public string $phone = '';
+    public string $bio = '';
+    public string $specialization = '';
+    public array $selectedSubjects = [];
 
-    // Subject specializations
-    public $subjects = [];
-    public $selectedSubjects = [];
+    // Options
+    public array $subjectOptions = [];
 
-    // Password change
-    public $currentPassword;
-    public $newPassword;
-    public $newPasswordConfirmation;
+    // Original data for change tracking
+    protected array $originalData = [];
 
+    // Mount the component
     public function mount(): void
     {
-        $this->user = Auth::user();
+        $this->user = Auth::user()->load(['teacherProfile', 'teacherProfile.subjects']);
         $this->teacherProfile = $this->user->teacherProfile;
 
-        if (!$this->teacherProfile) {
-            // Create a teacher profile if it doesn't exist
-            $this->teacherProfile = TeacherProfile::create([
-                'user_id' => $this->user->id,
-                'bio' => '',
-                'specialization' => '',
-                'phone' => '',
-            ]);
-        }
+        Log::info('Teacher Profile Edit Component Mounted', [
+            'teacher_user_id' => $this->user->id,
+            'teacher_profile_id' => $this->teacherProfile?->id,
+            'ip' => request()->ip()
+        ]);
 
-        // Load user and profile data
-        $this->name = $this->user->name;
-        $this->email = $this->user->email;
-        $this->bio = $this->teacherProfile->bio;
-        $this->specialization = $this->teacherProfile->specialization;
-        $this->phone = $this->teacherProfile->phone;
-        $this->photo = $this->user->profile_photo_path;
+        // Load current data into form
+        $this->loadUserData();
 
-        // Load subject specializations
-        $this->loadSubjects();
+        // Store original data for change tracking
+        $this->storeOriginalData();
+
+        // Load subject options
+        $this->loadSubjectOptions();
 
         // Log activity
         ActivityLog::log(
             Auth::id(),
             'access',
-            'Teacher accessed profile edit page',
+            "Accessed teacher profile edit page",
             TeacherProfile::class,
-            $this->teacherProfile->id,
+            $this->teacherProfile?->id,
             ['ip' => request()->ip()]
         );
     }
 
-    // Load available subjects
-    private function loadSubjects(): void
+    // Load user data into form
+    protected function loadUserData(): void
     {
-        // Get all subjects
-        $this->subjects = Subject::orderBy('name')
-            ->get()
-            ->map(function($subject) {
-                return [
-                    'id' => $subject->id,
-                    'name' => $subject->name,
-                    'code' => $subject->code,
-                    'level' => $subject->level,
-                    'curriculum' => $subject->curriculum ? $subject->curriculum->name : 'Unknown'
-                ];
-            })
-            ->toArray();
+        $this->name = $this->user->name;
+        $this->email = $this->user->email;
+        $this->phone = $this->user->phone ?? '';
 
-        // Initialize selected subjects as empty array
-        $this->selectedSubjects = [];
+        if ($this->teacherProfile) {
+            $this->bio = $this->teacherProfile->bio ?? '';
+            $this->specialization = $this->teacherProfile->specialization ?? '';
+            $this->selectedSubjects = $this->teacherProfile->subjects ?
+                $this->teacherProfile->subjects->pluck('id')->toArray() : [];
+        }
 
-        // Get teacher's subject specializations if the relationship exists
+        Log::info('Teacher Profile Data Loaded', [
+            'teacher_id' => $this->user->id,
+            'form_data' => [
+                'name' => $this->name,
+                'email' => $this->email,
+                'specialization' => $this->specialization,
+                'subjects_count' => count($this->selectedSubjects),
+            ]
+        ]);
+    }
+
+    // Store original data for change tracking
+    protected function storeOriginalData(): void
+    {
+        $this->originalData = [
+            'name' => $this->user->name,
+            'email' => $this->user->email,
+            'phone' => $this->user->phone ?? '',
+            'bio' => $this->teacherProfile->bio ?? '',
+            'specialization' => $this->teacherProfile->specialization ?? '',
+            'subjects' => $this->teacherProfile?->subjects ?
+                $this->teacherProfile->subjects->pluck('id')->toArray() : [],
+        ];
+    }
+
+    // Load subject options
+    protected function loadSubjectOptions(): void
+    {
         try {
-            if (method_exists($this->teacherProfile, 'subjects')) {
-                $this->selectedSubjects = $this->teacherProfile->subjects()
-                    ->pluck('subjects.id')
-                    ->toArray();
-            } else {
-                // Try using a property directly if it exists and is a collection
-                if (isset($this->teacherProfile->subjectSpecializations) &&
-                    $this->teacherProfile->subjectSpecializations instanceof Collection) {
-                    $this->selectedSubjects = $this->teacherProfile->subjectSpecializations
-                        ->pluck('id')
-                        ->toArray();
-                }
-            }
+            $subjects = Subject::with('curriculum')->orderBy('name')->get();
+            $this->subjectOptions = $subjects->map(fn($subject) => [
+                'id' => $subject->id,
+                'name' => $subject->name,
+                'code' => $subject->code,
+                'curriculum' => $subject->curriculum ? $subject->curriculum->name : 'Unknown',
+                'level' => $subject->level
+            ])->toArray();
+
+            Log::info('Subject Options Loaded', [
+                'subjects_count' => count($this->subjectOptions),
+                'subjects' => array_column($this->subjectOptions, 'name')
+            ]);
         } catch (\Exception $e) {
-            // Log the error but continue
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error loading subject specializations: ' . $e->getMessage(),
-                TeacherProfile::class,
-                $this->teacherProfile->id,
-                ['ip' => request()->ip()]
-            );
+            Log::error('Failed to Load Subject Options', [
+                'error' => $e->getMessage()
+            ]);
+
+            $this->subjectOptions = [];
         }
     }
 
-    // Save profile information
-    public function saveProfile(): void
+    // Save the profile
+    public function save(): void
     {
-        $this->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|email|max:255|unique:users,email,' . $this->user->id,
-            'bio' => 'nullable|string|max:1000',
-            'specialization' => 'nullable|string|max:255',
-            'phone' => 'nullable|string|max:20',
-            'newPhoto' => 'nullable|image|max:1024', // Max 1MB
+        Log::info('Teacher Profile Update Started', [
+            'teacher_user_id' => $this->user->id,
+            'form_data' => [
+                'name' => $this->name,
+                'email' => $this->email,
+                'specialization' => $this->specialization,
+                'selectedSubjects' => $this->selectedSubjects,
+            ]
         ]);
 
-        // Update user data
-        $this->user->name = $this->name;
-        $this->user->email = $this->email;
-        $this->user->save();
+        try {
+            // Validate form data
+            Log::debug('Starting Validation');
 
-        // Update profile data
-        $this->teacherProfile->bio = $this->bio;
-        $this->teacherProfile->specialization = $this->specialization;
-        $this->teacherProfile->phone = $this->phone;
-        $this->teacherProfile->save();
+            $validationRules = [
+                'name' => 'required|string|max:255',
+                'email' => 'required|string|email|max:255|unique:users,email,' . $this->user->id,
+                'phone' => 'nullable|string|max:20',
+                'bio' => 'nullable|string|max:1000',
+                'specialization' => 'nullable|string|max:255',
+                'selectedSubjects' => 'nullable|array',
+                'selectedSubjects.*' => 'integer|exists:subjects,id',
+            ];
 
-        // Handle photo upload
-        if ($this->newPhoto) {
-            $filename = 'profile-photos/' . $this->user->id . '-' . time() . '.' . $this->newPhoto->getClientOriginalExtension();
-
-            // Delete old photo if exists
-            if ($this->user->profile_photo_path) {
-                Storage::disk('public')->delete($this->user->profile_photo_path);
+            // Add password validation only if password is provided
+            if (!empty($this->password)) {
+                $validationRules['password'] = ['required', 'confirmed', Password::defaults()];
             }
 
-            // Store new photo
-            $this->newPhoto->storeAs('public', $filename);
-            $this->user->profile_photo_path = $filename;
-            $this->user->save();
+            $validated = $this->validate($validationRules, [
+                'name.required' => 'Please enter your name.',
+                'name.max' => 'Name must not exceed 255 characters.',
+                'email.required' => 'Please enter your email address.',
+                'email.email' => 'Please enter a valid email address.',
+                'email.unique' => 'This email address is already taken.',
+                'password.confirmed' => 'Password confirmation does not match.',
+                'phone.max' => 'Phone number must not exceed 20 characters.',
+                'bio.max' => 'Bio must not exceed 1000 characters.',
+                'specialization.max' => 'Specialization must not exceed 255 characters.',
+                'selectedSubjects.*.exists' => 'One or more selected subjects are invalid.',
+            ]);
 
-            $this->photo = $filename;
-            $this->newPhoto = null;
-        }
+            Log::info('Validation Passed', ['validated_data' => \Illuminate\Support\Arr::except($validated, ['password'])]);
 
-        // Handle subject specializations
-        $this->updateSubjectSpecializations();
+            // Prepare user data for DB
+            $userData = [
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'phone' => $validated['phone'],
+            ];
 
-        // Log activity
-        ActivityLog::log(
-            Auth::id(),
-            'update',
-            'Teacher updated profile information',
-            TeacherProfile::class,
-            $this->teacherProfile->id,
-            ['ip' => request()->ip()]
-        );
+            // Add password if provided
+            if (!empty($this->password)) {
+                $userData['password'] = Hash::make($validated['password']);
+            }
 
-        $this->success('Profile updated successfully');
-    }
+            // Prepare teacher profile data
+            $teacherData = [
+                'bio' => $validated['bio'],
+                'specialization' => $validated['specialization'],
+                'phone' => $validated['phone'], // Also store in teacher profile for redundancy
+            ];
 
-    // Update subject specializations
-    private function updateSubjectSpecializations(): void
-    {
-        try {
-            // Check if the subjects relationship method exists in TeacherProfile model
-            if (method_exists($this->teacherProfile, 'subjects')) {
-                // Sync subject specializations using the pivot table
-                $this->teacherProfile->subjects()->sync($this->selectedSubjects);
+            // Track changes for activity log
+            $changes = $this->getChanges($validated);
+
+            Log::info('Prepared Data', [
+                'user_data' => \Illuminate\Support\Arr::except($userData, ['password']),
+                'teacher_data' => $teacherData,
+                'changes' => $changes
+            ]);
+
+            DB::beginTransaction();
+            Log::debug('Database Transaction Started');
+
+            // Update user
+            Log::debug('Updating User Record');
+            $this->user->update($userData);
+            Log::info('User Updated Successfully', [
+                'user_id' => $this->user->id,
+                'user_email' => $this->user->email
+            ]);
+
+            // Create or update teacher profile
+            Log::debug('Creating/Updating Teacher Profile');
+            if ($this->teacherProfile) {
+                $this->teacherProfile->update($teacherData);
+                Log::info('Teacher Profile Updated Successfully', [
+                    'teacher_profile_id' => $this->teacherProfile->id
+                ]);
             } else {
-                // Log a message about missing relationship
+                $teacherData['user_id'] = $this->user->id;
+                $this->teacherProfile = TeacherProfile::create($teacherData);
+                Log::info('Teacher Profile Created Successfully', [
+                    'teacher_profile_id' => $this->teacherProfile->id
+                ]);
+            }
+
+            // Update subject assignments
+            Log::debug('Updating Subject Assignments');
+            $this->teacherProfile->subjects()->sync($validated['selectedSubjects'] ?? []);
+            Log::info('Subject Assignments Updated Successfully', [
+                'teacher_profile_id' => $this->teacherProfile->id,
+                'subjects' => $validated['selectedSubjects'] ?? []
+            ]);
+
+            // Log activity with changes
+            if (!empty($changes)) {
+                $changeDescription = "Updated teacher profile. Changes: " . implode(', ', $changes);
+
                 ActivityLog::log(
                     Auth::id(),
-                    'warning',
-                    'Subject specializations not updated: subjects relation not found',
+                    'update',
+                    $changeDescription,
                     TeacherProfile::class,
                     $this->teacherProfile->id,
-                    ['ip' => request()->ip()]
+                    [
+                        'changes' => $changes,
+                        'original_data' => $this->originalData,
+                        'new_data' => \Illuminate\Support\Arr::except($validated, ['password', 'password_confirmation']),
+                        'password_changed' => !empty($this->password)
+                    ]
                 );
             }
+
+            DB::commit();
+            Log::info('Database Transaction Committed');
+
+            // Update original data for future comparisons
+            $this->storeOriginalData();
+
+            // Clear password fields
+            $this->password = '';
+            $this->password_confirmation = '';
+
+            // Show success toast
+            $this->success("Your teacher profile has been successfully updated.");
+            Log::info('Success Toast Displayed');
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::error('Validation Failed', [
+                'errors' => $e->errors(),
+                'form_data' => [
+                    'name' => $this->name,
+                    'email' => $this->email,
+                    'specialization' => $this->specialization,
+                    'selectedSubjects' => $this->selectedSubjects,
+                ]
+            ]);
+
+            // Re-throw validation exception to show errors to user
+            throw $e;
+
         } catch (\Exception $e) {
-            // Log any errors that occur
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error updating subject specializations: ' . $e->getMessage(),
-                TeacherProfile::class,
-                $this->teacherProfile->id,
-                ['ip' => request()->ip(), 'exception' => $e->getMessage()]
-            );
+            DB::rollBack();
+            Log::error('Teacher Profile Update Failed', [
+                'error_message' => $e->getMessage(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'stack_trace' => $e->getTraceAsString(),
+                'user_id' => $this->user->id,
+                'form_data' => [
+                    'name' => $this->name,
+                    'email' => $this->email,
+                    'specialization' => $this->specialization,
+                    'selectedSubjects' => $this->selectedSubjects,
+                ]
+            ]);
+
+            $this->error("An error occurred: {$e->getMessage()}");
         }
     }
 
-    // Update password
-    public function updatePassword(): void
+    // Get changes between original and new data
+    protected function getChanges(array $newData): array
     {
-        $this->validate([
-            'currentPassword' => 'required|current_password',
-            'newPassword' => 'required|string|min:8|confirmed',
-            'newPasswordConfirmation' => 'required',
-        ]);
+        $changes = [];
 
-        $this->user->password = bcrypt($this->newPassword);
-        $this->user->save();
-
-        // Log activity
-        ActivityLog::log(
-            Auth::id(),
-            'update',
-            'Teacher updated password',
-            User::class,
-            $this->user->id,
-            ['ip' => request()->ip()]
-        );
-
-        $this->currentPassword = '';
-        $this->newPassword = '';
-        $this->newPasswordConfirmation = '';
-
-        $this->success('Password updated successfully');
-    }
-
-    // Get teaching statistics
-    public function teachingStats()
-    {
-        // Initialize stats with default values
-        $stats = [
-            'totalSessions' => 0,
-            'totalExams' => 0,
-            'totalTimeSlots' => 0,
-            'totalTimeHours' => 0,
-            'studentCount' => 0,
+        // Map form fields to human-readable names
+        $fieldMap = [
+            'name' => 'Name',
+            'email' => 'Email',
+            'phone' => 'Phone',
+            'bio' => 'Bio',
+            'specialization' => 'Specialization',
+            'selectedSubjects' => 'Subject Assignments',
         ];
 
-        try {
-            // Calculate teaching statistics if relationships exist
-            if (method_exists($this->teacherProfile, 'sessions')) {
-                $stats['totalSessions'] = $this->teacherProfile->sessions()->count();
-            }
+        foreach ($newData as $field => $newValue) {
+            $originalField = $field === 'selectedSubjects' ? 'subjects' : $field;
+            $originalValue = $this->originalData[$originalField] ?? null;
 
-            if (method_exists($this->teacherProfile, 'exams')) {
-                $stats['totalExams'] = $this->teacherProfile->exams()->count();
-            }
+            if ($field === 'selectedSubjects') {
+                // Compare arrays for subjects
+                $originalSubjects = is_array($originalValue) ? $originalValue : [];
+                $newSubjects = is_array($newValue) ? $newValue : [];
 
-            if (method_exists($this->teacherProfile, 'timetableSlots')) {
-                $stats['totalTimeSlots'] = $this->teacherProfile->timetableSlots()->count();
-                $stats['totalTimeHours'] = round($this->teacherProfile->timetableSlots()->sum('duration') / 60, 1);
-            }
+                sort($originalSubjects);
+                sort($newSubjects);
 
-            // Get student count safely
-            if (method_exists($this->teacherProfile, 'subjects')) {
-                $subjectIds = $this->teacherProfile->subjects()->pluck('subjects.id')->toArray();
-
-                if (!empty($subjectIds)) {
-                    $stats['studentCount'] = SubjectEnrollment::whereIn('subject_id', $subjectIds)
-                        ->distinct('program_enrollment_id')
-                        ->count();
+                if ($originalSubjects != $newSubjects) {
+                    $changes[] = "Subject assignments updated";
                 }
+            } elseif ($originalValue != $newValue) {
+                $fieldName = $fieldMap[$field] ?? $field;
+                $changes[] = "{$fieldName} updated";
             }
-        } catch (\Exception $e) {
-            // Log any errors but continue with default values
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error calculating teaching statistics: ' . $e->getMessage(),
-                TeacherProfile::class,
-                $this->teacherProfile->id,
-                ['ip' => request()->ip()]
-            );
         }
 
-        return $stats;
+        // Check if password was changed
+        if (!empty($this->password)) {
+            $changes[] = "Password updated";
+        }
+
+        return $changes;
+    }
+
+    // Toggle subject selection
+    public function toggleSubject(int $subjectId): void
+    {
+        if (in_array($subjectId, $this->selectedSubjects)) {
+            $this->selectedSubjects = array_values(array_filter($this->selectedSubjects, fn($id) => $id !== $subjectId));
+        } else {
+            $this->selectedSubjects[] = $subjectId;
+        }
+
+        Log::debug('Subject Toggled', [
+            'subject_id' => $subjectId,
+            'selected_subjects' => $this->selectedSubjects
+        ]);
+    }
+
+    // Check if subject is selected
+    public function isSubjectSelected(int $subjectId): bool
+    {
+        return in_array($subjectId, $this->selectedSubjects);
     }
 
     public function with(): array
     {
         return [
-            'teachingStats' => $this->teachingStats(),
+            // Empty array - we use computed properties instead
         ];
     }
-};
-?>
+};?>
 
 <div>
     <!-- Page header -->
-    <x-header title="Teacher Profile" separator progress-indicator>
-        <x-slot:subtitle>
-            Update your personal information and profile settings
-        </x-slot:subtitle>
+    <x-header title="Edit Teacher Profile" separator>
+        <x-slot:actions>
+            <x-button
+                label="View Profile"
+                icon="o-eye"
+                link="{{ route('teacher.profile.show') }}"
+                class="btn-ghost"
+            />
+        </x-slot:actions>
     </x-header>
 
-    <div class="grid grid-cols-1 gap-6 mb-6 md:grid-cols-3">
-        <!-- Teaching stats cards -->
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-primary">
-                <x-icon name="o-users" class="w-8 h-8" />
-            </div>
-            <div class="stat-title">Students</div>
-            <div class="stat-value">{{ $teachingStats['studentCount'] }}</div>
-            <div class="stat-desc">Across all subjects</div>
-        </div>
-
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-secondary">
-                <x-icon name="o-academic-cap" class="w-8 h-8" />
-            </div>
-            <div class="stat-title">Sessions</div>
-            <div class="stat-value">{{ $teachingStats['totalSessions'] }}</div>
-            <div class="stat-desc">Classes conducted</div>
-        </div>
-
-        <div class="rounded-lg shadow-sm stat bg-base-200">
-            <div class="stat-figure text-accent">
-                <x-icon name="o-clock" class="w-8 h-8" />
-            </div>
-            <div class="stat-title">Teaching Hours</div>
-            <div class="stat-value">{{ $teachingStats['totalTimeHours'] }}</div>
-            <div class="stat-desc">{{ $teachingStats['totalTimeSlots'] }} scheduled time slots</div>
-        </div>
-    </div>
-
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <!-- Profile Photo Card -->
-        <div class="lg:col-span-1">
-            <x-card title="Profile Photo">
-                <div class="flex flex-col items-center justify-center">
-                    <div class="avatar">
-                        <div class="w-32 h-32 rounded-full">
-                            @if ($photo)
-                                <img src="{{ asset('storage/' . $photo) }}" alt="{{ $name }}" />
+        <!-- Left column (2/3) - Form -->
+        <div class="lg:col-span-2">
+            <x-card title="Profile Information">
+                <form wire:submit="save" class="space-y-6">
+                    <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                        <!-- Name -->
+                        <div>
+                            <x-input
+                                label="Full Name"
+                                wire:model.live="name"
+                                placeholder="Enter your full name"
+                                required
+                            />
+                            @error('name')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Email -->
+                        <div>
+                            <x-input
+                                label="Email Address"
+                                wire:model.live="email"
+                                type="email"
+                                placeholder="your.email@example.com"
+                                required
+                            />
+                            @error('email')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Phone -->
+                        <div>
+                            <x-input
+                                label="Phone Number"
+                                wire:model.live="phone"
+                                placeholder="Your phone number"
+                            />
+                            @error('phone')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Specialization -->
+                        <div>
+                            <x-input
+                                label="Specialization"
+                                wire:model.live="specialization"
+                                placeholder="e.g., Mathematics, Physics, etc."
+                            />
+                            @error('specialization')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Bio -->
+                        <div class="md:col-span-2">
+                            <x-textarea
+                                label="Bio"
+                                wire:model.live="bio"
+                                placeholder="Tell us about yourself, your teaching experience, and qualifications..."
+                                rows="4"
+                            />
+                            @error('bio')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Password -->
+                        <div>
+                            <x-input
+                                label="New Password"
+                                wire:model.live="password"
+                                type="password"
+                                placeholder="Leave blank to keep current password"
+                            />
+                            <p class="mt-1 text-xs text-gray-500">Leave blank to keep the current password</p>
+                            @error('password')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Password Confirmation -->
+                        <div>
+                            <x-input
+                                label="Confirm New Password"
+                                wire:model.live="password_confirmation"
+                                type="password"
+                                placeholder="Confirm new password"
+                            />
+                            @error('password_confirmation')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <!-- Subjects Section -->
+                    <div class="pt-6 border-t">
+                        <div class="mb-4">
+                            <label class="block mb-2 text-sm font-medium text-gray-700">
+                                Teaching Subjects
+                            </label>
+                            <p class="mb-4 text-sm text-gray-500">
+                                Select the subjects you teach. This helps in assigning sessions and exams.
+                            </p>
+                        </div>
+
+                        @if(count($subjectOptions) > 0)
+                            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                @foreach($subjectOptions as $subject)
+                                    <div class="relative">
+                                        <label class="flex items-start p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 {{ $this->isSubjectSelected($subject['id']) ? 'border-blue-500 bg-blue-50' : 'border-gray-200' }}">
+                                            <input
+                                                type="checkbox"
+                                                wire:click="toggleSubject({{ $subject['id'] }})"
+                                                {{ $this->isSubjectSelected($subject['id']) ? 'checked' : '' }}
+                                                class="w-4 h-4 mt-1 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                            />
+                                            <div class="ml-3">
+                                                <div class="font-medium text-gray-900">{{ $subject['name'] }}</div>
+                                                <div class="text-sm text-gray-500">
+                                                    Code: {{ $subject['code'] }}
+                                                    @if($subject['level'])
+                                                        • Level: {{ $subject['level'] }}
+                                                    @endif
+                                                </div>
+                                                <div class="text-xs text-gray-400">{{ $subject['curriculum'] }}</div>
+                                            </div>
+                                        </label>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @else
+                            <div class="py-8 text-center">
+                                <x-icon name="o-academic-cap" class="w-12 h-12 mx-auto text-gray-300" />
+                                <div class="mt-2 text-sm text-gray-500">No subjects available</div>
+                                <p class="mt-1 text-xs text-gray-400">Contact the administrator to add subjects</p>
+                            </div>
+                        @endif
+
+                        @error('selectedSubjects')
+                            <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    <div class="flex justify-end pt-6">
+                        <x-button
+                            label="Save Changes"
+                            icon="o-check"
+                            type="submit"
+                            color="primary"
+                        />
+                    </div>
+                </form>
+            </x-card>
+        </div>
+
+        <!-- Right column (1/3) - Preview and Info -->
+        <div class="space-y-6">
+            <!-- Profile Preview -->
+            <x-card title="Profile Preview">
+                <div class="p-4 rounded-lg bg-base-200">
+                    <div class="flex items-center mb-4">
+                        <div class="avatar">
+                            <div class="w-16 h-16 rounded-full">
+                                <img src="https://ui-avatars.com/api/?name={{ urlencode($name ?: 'Teacher Name') }}&color=7F9CF5&background=EBF4FF" alt="Profile Avatar" />
+                            </div>
+                        </div>
+                        <div class="ml-4">
+                            <div class="text-lg font-semibold">{{ $name ?: 'Teacher Name' }}</div>
+                            <div class="text-sm text-gray-500">{{ $email ?: 'teacher@example.com' }}</div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-3 text-sm">
+                        @if($specialization)
+                            <div><strong>Specialization:</strong> {{ $specialization }}</div>
+                        @endif
+
+                        @if($phone)
+                            <div><strong>Phone:</strong> {{ $phone }}</div>
+                        @endif
+
+                        @if($bio)
+                            <div>
+                                <strong>Bio:</strong>
+                                <div class="p-2 mt-1 text-xs rounded bg-gray-50">{{ $bio }}</div>
+                            </div>
+                        @endif
+
+                        @if($password)
+                            <div class="text-orange-600">
+                                <x-icon name="o-key" class="inline w-4 h-4 mr-1" />
+                                <strong>Password will be updated</strong>
+                            </div>
+                        @endif
+
+                        <div>
+                            <strong>Teaching Subjects:</strong>
+                            @if(count($selectedSubjects) > 0)
+                                <div class="flex flex-wrap gap-1 mt-1">
+                                    @foreach($selectedSubjects as $subjectId)
+                                        @php
+                                            $subject = collect($subjectOptions)->firstWhere('id', $subjectId);
+                                        @endphp
+                                        @if($subject)
+                                            <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-blue-800 bg-blue-100 rounded-full">
+                                                {{ $subject['name'] }}
+                                            </span>
+                                        @endif
+                                    @endforeach
+                                </div>
                             @else
-                                <img src="{{ 'https://ui-avatars.com/api/?name=' . urlencode($name) . '&color=7F9CF5&background=EBF4FF' }}" alt="{{ $name }}" />
+                                <span class="text-gray-500">No subjects selected</span>
                             @endif
                         </div>
                     </div>
+                </div>
+            </x-card>
 
-                    <div class="mt-4">
-                        <input type="file" wire:model="newPhoto" class="hidden" id="photo-upload" accept="image/*" />
-                        <x-button label="Change Photo" icon="o-camera" @click="document.getElementById('photo-upload').click()" />
-                    </div>
+            <!-- Current Profile Info -->
+            @if($teacherProfile)
+                <x-card title="Current Profile">
+                    <div class="space-y-3 text-sm">
+                        <div>
+                            <div class="font-medium text-gray-500">Profile Created</div>
+                            <div>{{ $teacherProfile->created_at->format('M d, Y \a\t g:i A') }}</div>
+                        </div>
 
-                    @error('newPhoto')
-                        <div class="mt-2 text-sm text-error">{{ $message }}</div>
-                    @enderror
+                        <div>
+                            <div class="font-medium text-gray-500">Last Updated</div>
+                            <div>{{ $teacherProfile->updated_at->format('M d, Y \a\t g:i A') }}</div>
+                        </div>
 
-                    @if ($newPhoto)
-                        <div class="mt-2 text-sm">
-                            Photo Preview:
-                            <div class="avatar">
-                                <div class="w-16 h-16 rounded-full">
-                                    <img src="{{ $newPhoto->temporaryUrl() }}" alt="New photo preview" />
+                        @if($teacherProfile->subjects->count() > 0)
+                            <div>
+                                <div class="font-medium text-gray-500">Current Subjects</div>
+                                <div class="flex flex-wrap gap-1 mt-1">
+                                    @foreach($teacherProfile->subjects as $subject)
+                                        <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-green-800 bg-green-100 rounded-full">
+                                            {{ $subject->name }}
+                                        </span>
+                                    @endforeach
                                 </div>
                             </div>
-                        </div>
-                    @endif
-                </div>
-            </x-card>
+                        @endif
+                    </div>
+                </x-card>
+            @endif
 
-            <!-- Password Change Card -->
-            <x-card title="Change Password" class="mt-6">
-                <div class="space-y-4">
-                    <x-input
-                        label="Current Password"
-                        wire:model="currentPassword"
-                        type="password"
-                        placeholder="Enter your current password"
-                    />
+            <!-- Help Card -->
+            <x-card title="Profile Tips">
+                <div class="space-y-4 text-sm">
+                    <div>
+                        <div class="font-semibold">Profile Completion</div>
+                        <p class="text-gray-600">Complete your profile to help students and administrators know more about your expertise and teaching areas.</p>
+                    </div>
 
-                    <x-input
-                        label="New Password"
-                        wire:model="newPassword"
-                        type="password"
-                        placeholder="Enter new password"
-                    />
+                    <div>
+                        <div class="font-semibold">Subject Assignment</div>
+                        <p class="text-gray-600">Select all subjects you're qualified to teach. This affects which sessions and exams you can manage.</p>
+                    </div>
 
-                    <x-input
-                        label="Confirm New Password"
-                        wire:model="newPasswordConfirmation"
-                        type="password"
-                        placeholder="Confirm new password"
-                    />
+                    <div>
+                        <div class="font-semibold">Bio Guidelines</div>
+                        <p class="text-gray-600">Include your education background, teaching experience, and any special qualifications or certifications.</p>
+                    </div>
 
-                    <x-button
-                        label="Update Password"
-                        icon="o-key"
-                        wire:click="updatePassword"
-                        class="w-full btn-primary"
-                    />
-                </div>
-            </x-card>
-        </div>
-
-        <!-- Profile Information Card -->
-        <div class="lg:col-span-2">
-            <x-card title="Profile Information">
-                <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <x-input
-                        label="Full Name"
-                        wire:model="name"
-                        placeholder="Your full name"
-                    />
-
-                    <x-input
-                        label="Email Address"
-                        wire:model="email"
-                        type="email"
-                        placeholder="your.email@example.com"
-                    />
-
-                    <x-input
-                        label="Phone Number"
-                        wire:model="phone"
-                        placeholder="Your contact number"
-                    />
-
-                    <x-input
-                        label="Specialization"
-                        wire:model="specialization"
-                        placeholder="e.g. Mathematics, Physics, etc."
-                    />
-
-                    <div class="md:col-span-2">
-                        <x-textarea
-                            label="Teacher Bio"
-                            wire:model="bio"
-                            placeholder="Tell students about yourself, your qualifications, teaching style, and experience..."
-                            rows="6"
-                        />
+                    <div>
+                        <div class="font-semibold">Contact Information</div>
+                        <p class="text-gray-600">Keep your phone number updated for important communications from the administration.</p>
                     </div>
                 </div>
-
-                <x-slot:footer>
-                    <div class="flex justify-end">
-                        <x-button label="Save Profile" icon="o-check" wire:click="saveProfile" class="btn-primary" />
-                    </div>
-                </x-slot:footer>
-            </x-card>
-
-            <!-- Subject Specializations Card -->
-            <x-card title="Subject Specializations" class="mt-6">
-                <div class="mb-4">
-                    <p class="text-sm text-gray-600">Select the subjects you are qualified to teach:</p>
-                </div>
-
-                <div class="overflow-x-auto">
-                    <table class="table w-full table-zebra">
-                        <thead>
-                            <tr>
-                                <th class="w-16"></th>
-                                <th>Subject</th>
-                                <th>Code</th>
-                                <th>Level</th>
-                                <th>Curriculum</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @forelse ($subjects as $subject)
-                                <tr>
-                                    <td>
-                                        <x-checkbox wire:model.live="selectedSubjects" value="{{ $subject['id'] }}" />
-                                    </td>
-                                    <td>{{ $subject['name'] }}</td>
-                                    <td>{{ $subject['code'] }}</td>
-                                    <td>{{ $subject['level'] }}</td>
-                                    <td>{{ $subject['curriculum'] }}</td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="5" class="py-4 text-center text-gray-500">
-                                        No subjects available. Please contact an administrator.
-                                    </td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-
-                <x-slot:footer>
-                    <div class="flex justify-end">
-                        <x-button label="Save Specializations" icon="o-check" wire:click="saveProfile" class="btn-primary" />
-                    </div>
-                </x-slot:footer>
             </x-card>
         </div>
     </div>

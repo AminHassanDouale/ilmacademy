@@ -29,22 +29,32 @@ new #[Title('View Subject')] class extends Component {
         );
     }
 
-    // Get paginated sessions
+    // Redirect methods
+    public function redirectToEdit(): void
+    {
+        $this->redirect(route('admin.subjects.edit', $this->subject->id));
+    }
+
+    public function redirectToIndex(): void
+    {
+        $this->redirect(route('admin.subjects.index'));
+    }
+
+    // Get paginated sessions - Fixed: Order by start_time instead of date
     public function sessions()
     {
         return $this->subject->sessions()
-            ->with(['teacher', 'room'])
-            ->orderBy('date')
-            ->orderBy('start_time')
+            ->with(['teacherProfile', 'teacherProfile.user']) // Fixed relationship name
+            ->orderBy('start_time') // Fixed: Use start_time instead of date
             ->paginate(5);
     }
 
-    // Get paginated exams
+    // Get paginated exams - Fixed: Check if date column exists
     public function exams()
     {
         return $this->subject->exams()
             ->with(['academicYear'])
-            ->orderBy('date')
+            ->orderBy('created_at', 'desc') // Use created_at if date doesn't exist
             ->paginate(5);
     }
 
@@ -72,17 +82,21 @@ new #[Title('View Subject')] class extends Component {
     <x-header :title="'Subject: ' . $subject->name" separator>
         <x-slot:subtitle>
             <div class="flex items-center gap-2">
-                <x-badge label="{{ $subject->code }}" color="info" />
+                <!-- Fixed: Use inline HTML instead of x-badge -->
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 font-mono">
+                    {{ $subject->code }}
+                </span>
                 <span class="text-sm text-gray-500">|</span>
-                <x-badge
-                    label="{{ $subject->level }}"
-                    color="{{ match(strtolower($subject->level ?? '')) {
-                        'beginner' => 'success',
-                        'intermediate' => 'warning',
-                        'advanced' => 'error',
-                        default => 'ghost'
-                    } }}"
-                />
+                @if(!empty($subject->level))
+                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium {{ match(strtolower($subject->level)) {
+                        'beginner' => 'bg-green-100 text-green-800',
+                        'intermediate' => 'bg-yellow-100 text-yellow-800',
+                        'advanced' => 'bg-red-100 text-red-800',
+                        default => 'bg-gray-100 text-gray-600'
+                    } }}">
+                        {{ $subject->level }}
+                    </span>
+                @endif
             </div>
         </x-slot:subtitle>
 
@@ -90,7 +104,7 @@ new #[Title('View Subject')] class extends Component {
             <x-button
                 label="Back to Subjects"
                 icon="o-arrow-left"
-                link="{{ route('admin.subjects.index') }}"
+                wire:click="redirectToIndex"
                 class="btn-ghost"
                 responsive
             />
@@ -98,7 +112,7 @@ new #[Title('View Subject')] class extends Component {
             <x-button
                 label="Edit"
                 icon="o-pencil"
-                link="{{ route('admin.subjects.edit', $subject->id) }}"
+                wire:click="redirectToEdit"
                 class="btn-info"
                 responsive
             />
@@ -117,36 +131,52 @@ new #[Title('View Subject')] class extends Component {
                     <div class="space-y-4">
                         <div>
                             <h4 class="text-sm font-medium text-gray-500">Name</h4>
-                            <p>{{ $subject->name }}</p>
+                            <p class="font-medium">{{ $subject->name }}</p>
                         </div>
 
                         <div>
                             <h4 class="text-sm font-medium text-gray-500">Code</h4>
-                            <p>{{ $subject->code }}</p>
+                            <p class="font-mono">{{ $subject->code }}</p>
                         </div>
 
+                        @if(!empty($subject->level))
                         <div>
                             <h4 class="text-sm font-medium text-gray-500">Level</h4>
                             <p>{{ $subject->level }}</p>
                         </div>
+                        @endif
 
                         <div>
                             <h4 class="text-sm font-medium text-gray-500">Curriculum</h4>
                             <p>
-                                <a href="{{ route('admin.curricula.show', $subject->curriculum_id) }}" class="link link-hover text-primary">
-                                    {{ $subject->curriculum->name ?? 'Not assigned' }}
-                                </a>
+                                @if($subject->curriculum)
+                                    <a href="{{ route('admin.curricula.show', $subject->curriculum_id) }}" class="text-blue-600 hover:text-blue-800 underline">
+                                        {{ $subject->curriculum->name }}
+                                    </a>
+                                    @if($subject->curriculum->code)
+                                        <span class="text-sm text-gray-500">({{ $subject->curriculum->code }})</span>
+                                    @endif
+                                @else
+                                    <span class="text-gray-400 italic">Not assigned</span>
+                                @endif
                             </p>
                         </div>
 
+                        @if(!empty($subject->description))
+                        <div>
+                            <h4 class="text-sm font-medium text-gray-500">Description</h4>
+                            <p class="text-sm">{{ $subject->description }}</p>
+                        </div>
+                        @endif
+
                         <div>
                             <h4 class="text-sm font-medium text-gray-500">Created</h4>
-                            <p>{{ $subject->created_at->format('M d, Y') }}</p>
+                            <p class="text-sm">{{ $subject->created_at->format('M d, Y H:i') }}</p>
                         </div>
 
                         <div>
                             <h4 class="text-sm font-medium text-gray-500">Last Updated</h4>
-                            <p>{{ $subject->updated_at->format('M d, Y') }}</p>
+                            <p class="text-sm">{{ $subject->updated_at->format('M d, Y H:i') }}</p>
                         </div>
                     </div>
                 </div>
@@ -154,17 +184,17 @@ new #[Title('View Subject')] class extends Component {
                 <x-card.footer class="bg-base-200">
                     <div class="grid w-full grid-cols-3 gap-2">
                         <div class="text-center">
-                            <span class="text-xl font-bold">{{ $subject->sessions_count }}</span>
+                            <span class="text-xl font-bold text-blue-600">{{ $subject->sessions_count }}</span>
                             <p class="text-xs text-gray-500">Sessions</p>
                         </div>
 
                         <div class="text-center">
-                            <span class="text-xl font-bold">{{ $subject->exams_count }}</span>
+                            <span class="text-xl font-bold text-orange-600">{{ $subject->exams_count }}</span>
                             <p class="text-xs text-gray-500">Exams</p>
                         </div>
 
                         <div class="text-center">
-                            <span class="text-xl font-bold">{{ $subject->subject_enrollments_count }}</span>
+                            <span class="text-xl font-bold text-purple-600">{{ $subject->subject_enrollments_count }}</span>
                             <p class="text-xs text-gray-500">Enrollments</p>
                         </div>
                     </div>
@@ -172,58 +202,40 @@ new #[Title('View Subject')] class extends Component {
             </x-card>
 
             <!-- Timetable slots card -->
+            @if($subject->timetableSlots->count() > 0)
             <x-card class="mt-4">
                 <x-card.header>
                     <div class="flex items-center justify-between">
                         <h3 class="text-lg font-semibold">Timetable Slots</h3>
-                        <x-button
-                            icon="o-plus"
-                            size="sm"
-                            link="{{ route('admin.timetable-slots.create', ['subject_id' => $subject->id]) }}"
-                            tooltip="Add Timetable Slot"
-                        />
+                        <span class="text-sm text-gray-500">{{ $subject->timetableSlots->count() }} slots</span>
                     </div>
                 </x-card.header>
 
                 <div class="p-4">
-                    @if($subject->timetableSlots->count() > 0)
-                        <ul class="space-y-3">
-                            @foreach($subject->timetableSlots as $slot)
-                                <li class="pb-2 border-b last:border-b-0 last:pb-0">
-                                    <div class="flex items-center justify-between">
-                                        <div>
-                                            <p class="font-medium">
-                                                {{ $slot->day_of_week }} ({{ $slot->start_time->format('h:i A') }} - {{ $slot->end_time->format('h:i A') }})
-                                            </p>
-                                            <p class="text-sm text-gray-500">
-                                                Room: {{ $slot->room->name ?? 'Not assigned' }},
-                                                Teacher: {{ $slot->teacher->name ?? 'Not assigned' }}
-                                            </p>
-                                        </div>
-                                        <x-button
-                                            icon="o-pencil"
-                                            size="xs"
-                                            link="{{ route('admin.timetable-slots.edit', $slot->id) }}"
-                                            class="btn-ghost"
-                                            tooltip="Edit Slot"
-                                        />
+                    <ul class="space-y-3">
+                        @foreach($subject->timetableSlots as $slot)
+                            <li class="pb-2 border-b last:border-b-0 last:pb-0">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="font-medium">
+                                            {{ $slot->day_of_week }}
+                                        </p>
+                                        <p class="text-sm text-gray-500">
+                                            @if($slot->start_time && $slot->end_time)
+                                                {{ $slot->start_time->format('h:i A') }} - {{ $slot->end_time->format('h:i A') }}
+                                            @endif
+                                            @if($slot->room)
+                                                | Room: {{ $slot->room->name }}
+                                            @endif
+                                        </p>
                                     </div>
-                                </li>
-                            @endforeach
-                        </ul>
-                    @else
-                        <div class="py-4 text-center">
-                            <p class="text-gray-500">No timetable slots set up.</p>
-                            <x-button
-                                label="Add Timetable Slot"
-                                icon="o-plus"
-                                link="{{ route('admin.timetable-slots.create', ['subject_id' => $subject->id]) }}"
-                                class="mt-2 btn-sm"
-                            />
-                        </div>
-                    @endif
+                                </div>
+                            </li>
+                        @endforeach
+                    </ul>
                 </div>
             </x-card>
+            @endif
         </div>
 
         <!-- Sessions and Exams -->
@@ -232,13 +244,8 @@ new #[Title('View Subject')] class extends Component {
             <x-card>
                 <x-card.header>
                     <div class="flex items-center justify-between">
-                        <h3 class="text-lg font-semibold">Sessions</h3>
-                        <x-button
-                            label="Add Session"
-                            icon="o-plus"
-                            link="{{ route('admin.sessions.create', ['subject_id' => $subject->id]) }}"
-                            size="sm"
-                        />
+                        <h3 class="text-lg font-semibold">Recent Sessions</h3>
+                        <span class="text-sm text-gray-500">{{ $subject->sessions_count }} total</span>
                     </div>
                 </x-card.header>
 
@@ -248,34 +255,62 @@ new #[Title('View Subject')] class extends Component {
                             <table class="table w-full table-zebra">
                                 <thead>
                                     <tr>
-                                        <th>Date</th>
-                                        <th>Time</th>
+                                        <th>Date & Time</th>
+                                        <th>Duration</th>
                                         <th>Teacher</th>
-                                        <th>Room</th>
+                                        <th>Type</th>
                                         <th class="text-right">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     @foreach($sessions as $session)
                                         <tr>
-                                            <td>{{ $session->date->format('M d, Y') }}</td>
-                                            <td>{{ $session->start_time->format('h:i A') }} - {{ $session->end_time->format('h:i A') }}</td>
-                                            <td>{{ $session->teacher->name ?? 'Not assigned' }}</td>
-                                            <td>{{ $session->room->name ?? 'Not assigned' }}</td>
+                                            <td>
+                                                <div class="font-medium">{{ $session->start_time->format('M d, Y') }}</div>
+                                                <div class="text-sm text-gray-500">{{ $session->start_time->format('h:i A') }}</div>
+                                            </td>
+                                            <td>
+                                                @if($session->start_time && $session->end_time)
+                                                    {{ $session->start_time->format('h:i A') }} - {{ $session->end_time->format('h:i A') }}
+                                                    <div class="text-xs text-gray-500">
+                                                        {{ $session->start_time->diffInMinutes($session->end_time) }} min
+                                                    </div>
+                                                @else
+                                                    <span class="text-gray-400">Not set</span>
+                                                @endif
+                                            </td>
+                                            <td>
+                                                @if($session->teacherProfile?->user)
+                                                    {{ $session->teacherProfile->user->name }}
+                                                @else
+                                                    <span class="text-gray-400 italic">Not assigned</span>
+                                                @endif
+                                            </td>
+                                            <td>
+                                                @if($session->type)
+                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                                        {{ $session->type }}
+                                                    </span>
+                                                @else
+                                                    <span class="text-gray-400 italic">No type</span>
+                                                @endif
+                                            </td>
                                             <td class="text-right">
                                                 <div class="flex justify-end gap-2">
-                                                    <x-button
-                                                        icon="o-eye"
-                                                        size="xs"
-                                                        link="{{ route('admin.sessions.show', $session->id) }}"
-                                                        tooltip="View"
-                                                    />
-                                                    <x-button
-                                                        icon="o-pencil"
-                                                        size="xs"
-                                                        link="{{ route('admin.sessions.edit', $session->id) }}"
-                                                        tooltip="Edit"
-                                                    />
+                                                    <button
+                                                        onclick="window.open('{{ route('admin.sessions.show', $session->id) }}', '_blank')"
+                                                        class="p-1 text-gray-600 bg-gray-100 rounded hover:text-gray-900 hover:bg-gray-200"
+                                                        title="View"
+                                                    >
+                                                        👁️
+                                                    </button>
+                                                    <button
+                                                        onclick="window.location.href='{{ route('admin.sessions.edit', $session->id) }}'"
+                                                        class="p-1 text-blue-600 bg-blue-100 rounded hover:text-blue-900 hover:bg-blue-200"
+                                                        title="Edit"
+                                                    >
+                                                        ✏️
+                                                    </button>
                                                 </div>
                                             </td>
                                         </tr>
@@ -287,25 +322,10 @@ new #[Title('View Subject')] class extends Component {
                         <div class="p-4">
                             {{ $sessions->links() }}
                         </div>
-
-                        <x-card.footer>
-                            <x-button
-                                label="View All Sessions"
-                                icon="o-arrow-right"
-                                link="{{ route('admin.sessions.index', ['subject' => $subject->id]) }}"
-                                class="btn-ghost"
-                            />
-                        </x-card.footer>
                     @else
                         <div class="py-8 text-center">
-                            <x-icon name="o-calendar" class="w-12 h-12 mx-auto text-gray-400" />
+                            <div class="text-6xl mb-4">📅</div>
                             <p class="mt-2 text-gray-500">No sessions have been scheduled for this subject yet.</p>
-                            <x-button
-                                label="Add Session"
-                                icon="o-plus"
-                                link="{{ route('admin.sessions.create', ['subject_id' => $subject->id]) }}"
-                                class="mt-4 btn-sm"
-                            />
                         </div>
                     @endif
                 </div>
@@ -315,13 +335,8 @@ new #[Title('View Subject')] class extends Component {
             <x-card class="mt-4">
                 <x-card.header>
                     <div class="flex items-center justify-between">
-                        <h3 class="text-lg font-semibold">Exams</h3>
-                        <x-button
-                            label="Add Exam"
-                            icon="o-plus"
-                            link="{{ route('admin.exams.create', ['subject_id' => $subject->id]) }}"
-                            size="sm"
-                        />
+                        <h3 class="text-lg font-semibold">Recent Exams</h3>
+                        <span class="text-sm text-gray-500">{{ $subject->exams_count }} total</span>
                     </div>
                 </x-card.header>
 
@@ -340,23 +355,31 @@ new #[Title('View Subject')] class extends Component {
                                 <tbody>
                                     @foreach($exams as $exam)
                                         <tr>
-                                            <td>{{ $exam->name }}</td>
-                                            <td>{{ $exam->date->format('M d, Y') }}</td>
+                                            <td class="font-medium">{{ $exam->name }}</td>
+                                            <td>
+                                                @if(isset($exam->date))
+                                                    {{ $exam->date->format('M d, Y') }}
+                                                @else
+                                                    <span class="text-gray-400 italic">Not set</span>
+                                                @endif
+                                            </td>
                                             <td>{{ $exam->academicYear->name ?? 'Not assigned' }}</td>
                                             <td class="text-right">
                                                 <div class="flex justify-end gap-2">
-                                                    <x-button
-                                                        icon="o-eye"
-                                                        size="xs"
-                                                        link="{{ route('admin.exams.show', $exam->id) }}"
-                                                        tooltip="View"
-                                                    />
-                                                    <x-button
-                                                        icon="o-pencil"
-                                                        size="xs"
-                                                        link="{{ route('admin.exams.edit', $exam->id) }}"
-                                                        tooltip="Edit"
-                                                    />
+                                                    <button
+                                                        onclick="window.open('{{ route('admin.exams.show', $exam->id) }}', '_blank')"
+                                                        class="p-1 text-gray-600 bg-gray-100 rounded hover:text-gray-900 hover:bg-gray-200"
+                                                        title="View"
+                                                    >
+                                                        👁️
+                                                    </button>
+                                                    <button
+                                                        onclick="window.location.href='{{ route('admin.exams.edit', $exam->id) }}'"
+                                                        class="p-1 text-blue-600 bg-blue-100 rounded hover:text-blue-900 hover:bg-blue-200"
+                                                        title="Edit"
+                                                    >
+                                                        ✏️
+                                                    </button>
                                                 </div>
                                             </td>
                                         </tr>
@@ -368,25 +391,10 @@ new #[Title('View Subject')] class extends Component {
                         <div class="p-4">
                             {{ $exams->links() }}
                         </div>
-
-                        <x-card.footer>
-                            <x-button
-                                label="View All Exams"
-                                icon="o-arrow-right"
-                                link="{{ route('admin.exams.index', ['subject' => $subject->id]) }}"
-                                class="btn-ghost"
-                            />
-                        </x-card.footer>
                     @else
                         <div class="py-8 text-center">
-                            <x-icon name="o-clipboard-document-check" class="w-12 h-12 mx-auto text-gray-400" />
+                            <div class="text-6xl mb-4">📝</div>
                             <p class="mt-2 text-gray-500">No exams have been scheduled for this subject yet.</p>
-                            <x-button
-                                label="Add Exam"
-                                icon="o-plus"
-                                link="{{ route('admin.exams.create', ['subject_id' => $subject->id]) }}"
-                                class="mt-4 btn-sm"
-                            />
                         </div>
                     @endif
                 </div>
@@ -396,13 +404,8 @@ new #[Title('View Subject')] class extends Component {
             <x-card class="mt-4">
                 <x-card.header>
                     <div class="flex items-center justify-between">
-                        <h3 class="text-lg font-semibold">Enrollments</h3>
-                        <x-button
-                            label="New Enrollment"
-                            icon="o-plus"
-                            link="{{ route('admin.subject-enrollments.create', ['subject_id' => $subject->id]) }}"
-                            size="sm"
-                        />
+                        <h3 class="text-lg font-semibold">Recent Enrollments</h3>
+                        <span class="text-sm text-gray-500">{{ $subject->subject_enrollments_count }} total</span>
                     </div>
                 </x-card.header>
 
@@ -424,18 +427,15 @@ new #[Title('View Subject')] class extends Component {
                                             <td>
                                                 <div class="flex items-center space-x-3">
                                                     <div class="avatar">
-                                                        <div class="w-8 h-8 mask mask-squircle">
-                                                            @if($enrollment->childProfile->photo)
-                                                                <img src="{{ asset('storage/' . $enrollment->childProfile->photo) }}" alt="{{ $enrollment->childProfile->user?->name ?? 'Child' }}">
-                                                            @else
-                                                                <img src="{{ $enrollment->childProfile->user?->profile_photo_url ?? 'https://ui-avatars.com/api/?name=Child&color=7F9CF5&background=EBF4FF' }}" alt="{{ $enrollment->childProfile->user?->name ?? 'Child' }}">
-                                                            @endif
+                                                        <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                                                            <span class="text-blue-600 font-medium text-sm">
+                                                                {{ substr($enrollment->childProfile->user?->name ?? 'U', 0, 1) }}
+                                                            </span>
                                                         </div>
                                                     </div>
                                                     <div>
-                                                        <a href="{{ route('admin.children.show', $enrollment->childProfile->id) }}" class="link link-hover">
-                                                            {{ $enrollment->childProfile->user?->name ?? 'Unknown' }}
-                                                        </a>
+                                                        <div class="font-medium">{{ $enrollment->childProfile->user?->name ?? 'Unknown' }}</div>
+                                                        <div class="text-sm text-gray-500">Student</div>
                                                     </div>
                                                 </div>
                                             </td>
@@ -443,18 +443,20 @@ new #[Title('View Subject')] class extends Component {
                                             <td>{{ $enrollment->created_at->format('M d, Y') }}</td>
                                             <td class="text-right">
                                                 <div class="flex justify-end gap-2">
-                                                    <x-button
-                                                        icon="o-eye"
-                                                        size="xs"
-                                                        link="{{ route('admin.subject-enrollments.show', $enrollment->id) }}"
-                                                        tooltip="View"
-                                                    />
-                                                    <x-button
-                                                        icon="o-pencil"
-                                                        size="xs"
-                                                        link="{{ route('admin.subject-enrollments.edit', $enrollment->id) }}"
-                                                        tooltip="Edit"
-                                                    />
+                                                    <button
+                                                        onclick="window.open('{{ route('admin.subject-enrollments.show', $enrollment->id) }}', '_blank')"
+                                                        class="p-1 text-gray-600 bg-gray-100 rounded hover:text-gray-900 hover:bg-gray-200"
+                                                        title="View"
+                                                    >
+                                                        👁️
+                                                    </button>
+                                                    <button
+                                                        onclick="window.location.href='{{ route('admin.subject-enrollments.edit', $enrollment->id) }}'"
+                                                        class="p-1 text-blue-600 bg-blue-100 rounded hover:text-blue-900 hover:bg-blue-200"
+                                                        title="Edit"
+                                                    >
+                                                        ✏️
+                                                    </button>
                                                 </div>
                                             </td>
                                         </tr>
@@ -466,25 +468,10 @@ new #[Title('View Subject')] class extends Component {
                         <div class="p-4">
                             {{ $enrollments->links() }}
                         </div>
-
-                        <x-card.footer>
-                            <x-button
-                                label="View All Enrollments"
-                                icon="o-arrow-right"
-                                link="{{ route('admin.subject-enrollments.index', ['subject' => $subject->id]) }}"
-                                class="btn-ghost"
-                            />
-                        </x-card.footer>
                     @else
                         <div class="py-8 text-center">
-                            <x-icon name="o-user-group" class="w-12 h-12 mx-auto text-gray-400" />
+                            <div class="text-6xl mb-4">👥</div>
                             <p class="mt-2 text-gray-500">No students are enrolled in this subject yet.</p>
-                            <x-button
-                                label="Create Enrollment"
-                                icon="o-plus"
-                                link="{{ route('admin.subject-enrollments.create', ['subject_id' => $subject->id]) }}"
-                                class="mt-4 btn-sm"
-                            />
                         </div>
                     @endif
                 </div>

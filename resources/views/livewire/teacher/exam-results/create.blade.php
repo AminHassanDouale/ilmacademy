@@ -2,654 +2,665 @@
 
 use App\Models\Exam;
 use App\Models\ExamResult;
+use App\Models\TeacherProfile;
+use App\Models\SubjectEnrollment;
 use App\Models\ActivityLog;
-use App\Models\ChildProfile;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Title;
-use Livewire\Attributes\Rule;
 use Livewire\Volt\Component;
 use Mary\Traits\Toast;
 
-new #[Title('Record Exam Results')] class extends Component {
+new #[Title('Add Exam Results')] class extends Component {
     use Toast;
 
-    // Exam model
+    // Model instances
     public Exam $exam;
+    public ?TeacherProfile $teacherProfile = null;
 
-    // Attributes for bulk upload
-    public $bulkUpload = false;
-    public $uploadFile = null;
+    // Data collections
+    public $enrolledStudents = [];
 
-    // Search filter
-    public $search = '';
+    // Form data
+    public array $resultData = [];
+    public bool $bulkMode = false;
+    public string $bulkScore = '';
+    public string $bulkRemarks = '';
 
-    // Student results data
-    public $students = [];
-    public $results = [];
-    public $comments = [];
-    public $absentStudents = [];
-
-    // Status tracking
-    public $isAllStudentsProcessed = false;
-    public $isCompleted = false;
-
-    // Options
-    public $notifyStudents = true;
-    #[Rule('required|numeric')]
-    public $markAsAbsentBelowScore = null;
-
+    // Mount the component
     public function mount(Exam $exam): void
     {
-        $this->exam = $exam;
+        $this->exam = $exam->load(['subject', 'subject.curriculum', 'teacherProfile', 'academicYear', 'examResults']);
+        $this->teacherProfile = Auth::user()->teacherProfile;
 
-        // Load the exam with relationships
-        $this->exam->load(['subject', 'teacherProfile.user']);
-
-        // Check if current teacher is the owner of this exam
-        $teacherProfile = Auth::user()->teacherProfile;
-        $isOwner = $teacherProfile && $teacherProfile->id === $this->exam->teacher_profile_id;
-
-        if (!$isOwner) {
-            $this->error('You do not have permission to record results for this exam.');
-            redirect()->route('teacher.exams.index');
+        if (!$this->teacherProfile) {
+            $this->error('Teacher profile not found. Please complete your profile first.');
+            $this->redirect(route('teacher.profile.edit'));
             return;
         }
 
-        // Check if exam is completed
-        $now = Carbon::now();
-        $examDate = Carbon::parse($this->exam->date);
-        $this->isCompleted = $examDate->isBefore($now->startOfDay());
-
-        if (!$this->isCompleted) {
-            $this->error('You cannot record results for an exam that has not been completed yet.');
-            redirect()->route('teacher.exams.show', $this->exam->id);
+        // Check if teacher owns this exam
+        if ($this->exam->teacher_profile_id !== $this->teacherProfile->id) {
+            $this->error('You are not authorized to add results for this exam.');
+            $this->redirect(route('teacher.exams.index'));
             return;
         }
 
-        // Check if exam is already graded
-        if ($this->exam->is_graded) {
-            $this->error('This exam has already been graded. You can view the results instead.');
-            redirect()->route('teacher.exams.results', $this->exam->id);
+        // Check if results already exist
+        if ($this->exam->examResults->count() > 0) {
+            $this->info('Results already exist for this exam. Redirecting to manage results.');
+            $this->redirect(route('teacher.exams.results', $this->exam->id));
             return;
         }
 
-        // Load students and initialize results
+        Log::info('Exam Results Create Component Mounted', [
+            'teacher_user_id' => Auth::id(),
+            'exam_id' => $exam->id,
+            'subject_id' => $exam->subject_id,
+            'ip' => request()->ip()
+        ]);
+
         $this->loadStudents();
 
         // Log activity
         ActivityLog::log(
             Auth::id(),
             'access',
-            'Teacher accessed create exam results page: ' . $this->exam->title,
+            "Accessed create results page for exam: {$exam->title} for {$exam->subject->name}",
             Exam::class,
-            $this->exam->id,
-            ['ip' => request()->ip()]
+            $exam->id,
+            [
+                'exam_id' => $exam->id,
+                'exam_title' => $exam->title,
+                'subject_name' => $exam->subject->name,
+                'ip' => request()->ip()
+            ]
         );
     }
 
-    // Load students enrolled in the subject
-    private function loadStudents(): void
+    protected function loadStudents(): void
     {
         try {
-            // Get students enrolled in the subject
-            if (method_exists($this->exam->subject, 'enrolledStudents')) {
-                $this->students = $this->exam->subject->enrolledStudents()
-                    ->with(['childProfile.user', 'program'])
-                    ->get()
-                    ->map(function ($student) {
-                        return [
-                            'id' => $student->childProfile->id,
-                            'name' => $student->childProfile->user->name ?? 'Unknown Student',
-                            'photo' => $student->childProfile->photo,
-                            'profile_url' => $student->childProfile->user->profile_photo_url ?? null,
-                            'program' => $student->program->name ?? 'No Program',
-                            'enrollment_id' => $student->id,
-                        ];
-                    })
-                    ->toArray();
+            // Get enrolled students for this subject
+            $this->enrolledStudents = SubjectEnrollment::with(['childProfile', 'childProfile.user'])
+                ->where('subject_id', $this->exam->subject_id)
+                ->where('status', 'active')
+                ->get()
+                ->sortBy('childProfile.full_name')
+                ->values();
 
-                // Initialize results and comments arrays with student IDs as keys
-                foreach ($this->students as $student) {
-                    $this->results[$student['id']] = null;
-                    $this->comments[$student['id']] = '';
-                    $this->absentStudents[$student['id']] = false;
-                }
-            } else {
-                $this->students = [];
-            }
-        } catch (\Exception $e) {
-            // Log error
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error loading enrolled students: ' . $e->getMessage(),
-                Exam::class,
-                $this->exam->id,
-                ['ip' => request()->ip()]
-            );
-
-            $this->error('Failed to load enrolled students. Please try again.');
-        }
-    }
-
-    // Filter students based on search term
-    public function getFilteredStudents()
-    {
-        if (empty($this->search)) {
-            return $this->students;
-        }
-
-        return array_filter($this->students, function ($student) {
-            return stripos($student['name'], $this->search) !== false;
-        });
-    }
-
-    // Mark student as absent
-    public function toggleAbsent($studentId): void
-    {
-        $this->absentStudents[$studentId] = !$this->absentStudents[$studentId];
-
-        // Clear score if marked as absent
-        if ($this->absentStudents[$studentId]) {
-            $this->results[$studentId] = null;
-        }
-    }
-
-    // Validate results before saving
-    public function validateResults(): bool
-    {
-        try {
-            // Check if all students have a valid result or are marked absent
-            $this->isAllStudentsProcessed = true;
-
-            foreach ($this->students as $student) {
-                $studentId = $student['id'];
-
-                // If student is marked as absent, skip validation
-                if ($this->absentStudents[$studentId]) {
-                    continue;
-                }
-
-                // Check if score is provided
-                if ($this->results[$studentId] === null || $this->results[$studentId] === '') {
-                    $this->isAllStudentsProcessed = false;
-                    break;
-                }
-
-                // Validate score is within acceptable range
-                if ($this->results[$studentId] < 0 || $this->results[$studentId] > $this->exam->total_marks) {
-                    $this->addError("results.{$studentId}", "Score must be between 0 and {$this->exam->total_marks}");
-                    return false;
-                }
+            // Initialize result data with default values
+            $this->resultData = [];
+            foreach ($this->enrolledStudents as $enrollment) {
+                $studentId = $enrollment->child_profile_id;
+                $this->resultData[$studentId] = [
+                    'score' => '',
+                    'remarks' => '',
+                ];
             }
 
-            return true;
-        } catch (\Exception $e) {
-            // Log error
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error validating exam results: ' . $e->getMessage(),
-                Exam::class,
-                $this->exam->id,
-                ['ip' => request()->ip()]
-            );
-
-            $this->error('Error validating results: ' . $e->getMessage());
-            return false;
-        }
-    }
-
-    // Process and validate mark as absent below score
-    public function applyAbsentBelowScore(): void
-    {
-        try {
-            if ($this->markAsAbsentBelowScore === null) {
-                $this->error('Please enter a valid score threshold');
-                return;
-            }
-
-            // Validate input
-            $this->validate([
-                'markAsAbsentBelowScore' => 'required|numeric|min:0|max:' . $this->exam->total_marks,
+            Log::info('Students Data Loaded', [
+                'exam_id' => $this->exam->id,
+                'enrolled_students_count' => $this->enrolledStudents->count(),
             ]);
 
-            $count = 0;
-
-            // Apply to all students
-            foreach ($this->students as $student) {
-                $studentId = $student['id'];
-
-                // If score is below threshold and not null, mark as absent
-                if (is_numeric($this->results[$studentId]) && $this->results[$studentId] < $this->markAsAbsentBelowScore) {
-                    $this->absentStudents[$studentId] = true;
-                    $this->results[$studentId] = null;
-                    $count++;
-                }
-            }
-
-            $this->success($count . ' students with scores below ' . $this->markAsAbsentBelowScore . ' marked as absent.');
-            $this->markAsAbsentBelowScore = null;
         } catch (\Exception $e) {
-            $this->error('Error applying absent threshold: ' . $e->getMessage());
+            Log::error('Failed to load students data', [
+                'exam_id' => $this->exam->id,
+                'error' => $e->getMessage()
+            ]);
+
+            $this->enrolledStudents = collect();
+            $this->resultData = [];
         }
     }
 
-    // Save exam results
+    // Update individual student result
+    public function updateResult(int $studentId, string $field, string $value): void
+    {
+        if (isset($this->resultData[$studentId])) {
+            $this->resultData[$studentId][$field] = $value;
+
+            Log::debug('Result Updated', [
+                'student_id' => $studentId,
+                'field' => $field,
+                'value' => $value,
+                'exam_id' => $this->exam->id
+            ]);
+        }
+    }
+
+    // Bulk update results
+    public function bulkUpdateResults(): void
+    {
+        if (empty($this->bulkScore)) {
+            $this->error('Please enter a score for bulk update.');
+            return;
+        }
+
+        // Validate bulk score
+        if (!is_numeric($this->bulkScore)) {
+            $this->error('Please enter a valid numeric score.');
+            return;
+        }
+
+        if ($this->exam->total_marks && (float) $this->bulkScore > $this->exam->total_marks) {
+            $this->error('Score cannot exceed total marks (' . $this->exam->total_marks . ').');
+            return;
+        }
+
+        foreach ($this->resultData as $studentId => $data) {
+            $this->resultData[$studentId]['score'] = $this->bulkScore;
+            if ($this->bulkRemarks) {
+                $this->resultData[$studentId]['remarks'] = $this->bulkRemarks;
+            }
+        }
+
+        $this->bulkMode = false;
+
+        $this->success("All students scored as {$this->bulkScore}");
+
+        Log::info('Bulk Results Update', [
+            'exam_id' => $this->exam->id,
+            'bulk_score' => $this->bulkScore,
+            'bulk_remarks' => $this->bulkRemarks,
+            'student_count' => count($this->resultData)
+        ]);
+    }
+
+    // Save all results
     public function saveResults(): void
     {
+        Log::info('Exam Results Create Started', [
+            'teacher_user_id' => Auth::id(),
+            'exam_id' => $this->exam->id,
+            'student_count' => count($this->resultData)
+        ]);
+
         try {
-            // Validate results first
-            if (!$this->validateResults()) {
-                return;
-            }
+            // Validate that at least one result is entered
+            $hasResults = false;
+            $validationErrors = [];
 
-            // Begin transaction to ensure all results are saved
-            \DB::beginTransaction();
+            foreach ($this->resultData as $studentId => $data) {
+                if (!empty($data['score'])) {
+                    $hasResults = true;
 
-            $savedCount = 0;
-            $absentCount = 0;
-            $now = Carbon::now();
-
-            // Create result records
-            foreach ($this->students as $student) {
-                $studentId = $student['id'];
-                $isAbsent = $this->absentStudents[$studentId];
-
-                // Create exam result record
-                ExamResult::create([
-                    'exam_id' => $this->exam->id,
-                    'child_profile_id' => $studentId,
-                    'score' => $isAbsent ? 0 : $this->results[$studentId],
-                    'comments' => $this->comments[$studentId],
-                    'is_absent' => $isAbsent,
-                    'submitted_at' => $now,
-                    'graded_by' => Auth::id(),
-                ]);
-
-                if ($isAbsent) {
-                    $absentCount++;
-                } else {
-                    $savedCount++;
+                    // Validate score
+                    if (!is_numeric($data['score'])) {
+                        $student = $this->enrolledStudents->firstWhere('child_profile_id', $studentId);
+                        $validationErrors[] = "Invalid score for {$student->childProfile->full_name}";
+                    } elseif ((float) $data['score'] < 0) {
+                        $student = $this->enrolledStudents->firstWhere('child_profile_id', $studentId);
+                        $validationErrors[] = "Score cannot be negative for {$student->childProfile->full_name}";
+                    } elseif ($this->exam->total_marks && (float) $data['score'] > $this->exam->total_marks) {
+                        $student = $this->enrolledStudents->firstWhere('child_profile_id', $studentId);
+                        $validationErrors[] = "Score for {$student->childProfile->full_name} exceeds total marks ({$this->exam->total_marks})";
+                    }
                 }
             }
 
-            // Update exam status to graded
-            $this->exam->update([
-                'is_graded' => true,
-                'graded_at' => $now,
-            ]);
-
-            // Notify students if selected
-            if ($this->notifyStudents) {
-                // TODO: Implement notification logic
-                // This would typically involve sending emails or notifications to students
+            if (!$hasResults) {
+                $this->error('Please enter at least one result before saving.');
+                return;
             }
 
-            // Commit transaction
-            \DB::commit();
+            if (!empty($validationErrors)) {
+                foreach ($validationErrors as $error) {
+                    $this->error($error);
+                }
+                return;
+            }
+
+            DB::beginTransaction();
+            Log::debug('Database Transaction Started');
+
+            $createdCount = 0;
+            $createdResults = [];
+
+            foreach ($this->resultData as $studentId => $data) {
+                if (!empty($data['score'])) {
+                    // Create new result
+                    $resultData = [
+                        'exam_id' => $this->exam->id,
+                        'child_profile_id' => $studentId,
+                        'score' => (float) $data['score'],
+                        'remarks' => $data['remarks'] ?: null,
+                    ];
+
+                    $examResult = ExamResult::create($resultData);
+                    $createdResults[] = $examResult;
+                    $createdCount++;
+                }
+            }
+
+            // Calculate statistics for logging
+            $scores = collect($createdResults)->pluck('score');
+            $averageScore = $scores->avg();
+            $highestScore = $scores->max();
+            $lowestScore = $scores->min();
 
             // Log activity
+            $description = "Created results for exam '{$this->exam->title}' for {$this->exam->subject->name}";
+
             ActivityLog::log(
                 Auth::id(),
                 'create',
-                'Teacher recorded exam results: ' . $this->exam->title,
+                $description,
                 Exam::class,
                 $this->exam->id,
                 [
-                    'ip' => request()->ip(),
-                    'stats' => [
-                        'students_count' => count($this->students),
-                        'results_saved' => $savedCount,
-                        'absent_count' => $absentCount,
-                    ]
+                    'exam_id' => $this->exam->id,
+                    'exam_title' => $this->exam->title,
+                    'subject_name' => $this->exam->subject->name,
+                    'created_count' => $createdCount,
+                    'total_students' => $this->enrolledStudents->count(),
+                    'statistics' => [
+                        'average_score' => round($averageScore, 1),
+                        'highest_score' => $highestScore,
+                        'lowest_score' => $lowestScore,
+                    ],
                 ]
             );
 
-            $this->success('Exam results saved successfully. ' . $savedCount . ' results recorded and ' . $absentCount . ' students marked as absent.');
+            DB::commit();
+            Log::info('Database Transaction Committed');
 
-            // Redirect to results page
-            redirect()->route('teacher.exams.results', $this->exam->id);
+            // Show success message
+            $this->success("Results created successfully for {$createdCount} students.");
+
+            Log::info('Exam Results Create Completed', [
+                'exam_id' => $this->exam->id,
+                'created_count' => $createdCount,
+                'average_score' => round($averageScore, 1),
+            ]);
+
+            // Redirect to results management page
+            $this->redirect(route('teacher.exams.results', $this->exam->id));
+
         } catch (\Exception $e) {
-            // Rollback transaction on error
-            \DB::rollBack();
+            DB::rollBack();
+            Log::error('Exam Results Create Failed', [
+                'error_message' => $e->getMessage(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'stack_trace' => $e->getTraceAsString(),
+                'exam_id' => $this->exam->id,
+                'student_count' => count($this->resultData)
+            ]);
 
-            // Log error
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error saving exam results: ' . $e->getMessage(),
-                Exam::class,
-                $this->exam->id,
-                ['ip' => request()->ip()]
-            );
-
-            $this->error('Failed to save exam results: ' . $e->getMessage());
+            $this->error("An error occurred while creating results: {$e->getMessage()}");
         }
     }
 
-    // Handle Excel/CSV upload for bulk results
-    public function handleBulkUpload(): void
+    // Get grade for score
+    public function getGrade(float $score): string
     {
-        try {
-            // TODO: Implement file upload and parsing logic
-            // This would typically involve:
-            // 1. Validating the uploaded file (Excel/CSV)
-            // 2. Parsing the file contents
-            // 3. Mapping student data to the results array
-            // 4. Handling any errors in the file format
-
-            $this->bulkUpload = false;
-            $this->success('Bulk upload processed successfully.');
-        } catch (\Exception $e) {
-            $this->error('Failed to process bulk upload: ' . $e->getMessage());
+        if (!$this->exam->total_marks) {
+            return 'N/A';
         }
+
+        $percentage = ($score / $this->exam->total_marks) * 100;
+
+        if ($percentage >= 90) return 'A';
+        if ($percentage >= 80) return 'B';
+        if ($percentage >= 70) return 'C';
+        if ($percentage >= 50) return 'D';
+        return 'F';
     }
 
-    // Cancel and go back
-    public function cancel(): void
+    // Get grade color
+    public function getGradeColor(string $grade): string
     {
-        redirect()->route('teacher.exams.show', $this->exam->id);
+        return match($grade) {
+            'A' => 'bg-green-100 text-green-800',
+            'B' => 'bg-blue-100 text-blue-800',
+            'C' => 'bg-yellow-100 text-yellow-800',
+            'D' => 'bg-orange-100 text-orange-800',
+            'F' => 'bg-red-100 text-red-800',
+            default => 'bg-gray-100 text-gray-600'
+        };
     }
 
-    // Format date in d/m/Y format
-    public function formatDate($date): string
+    // Get percentage
+    public function getPercentage(float $score): string
     {
-        return Carbon::parse($date)->format('d/m/Y');
+        if (!$this->exam->total_marks) {
+            return 'N/A';
+        }
+
+        return round(($score / $this->exam->total_marks) * 100, 1) . '%';
     }
-};
-?>
+
+    // Get current statistics
+    public function getCurrentStatsProperty(): array
+    {
+        $scores = collect($this->resultData)
+            ->filter(fn($data) => !empty($data['score']))
+            ->pluck('score')
+            ->map(fn($score) => (float) $score);
+
+        if ($scores->count() === 0) {
+            return [
+                'total_entries' => 0,
+                'average_score' => 0,
+                'completion_percentage' => 0,
+            ];
+        }
+
+        return [
+            'total_entries' => $scores->count(),
+            'average_score' => round($scores->avg(), 1),
+            'completion_percentage' => round(($scores->count() / $this->enrolledStudents->count()) * 100, 1),
+        ];
+    }
+
+    public function with(): array
+    {
+        return [
+            'currentStats' => $this->currentStats,
+        ];
+    }
+};?>
 
 <div>
     <!-- Page header -->
-    <x-header title="Record Exam Results" separator progress-indicator>
-        <x-slot:subtitle>
-            {{ $exam->title }} | {{ $exam->subject->name ?? 'Unknown Subject' }} | {{ formatDate($exam->date) }}
-        </x-slot:subtitle>
-
-        <!-- SEARCH -->
-        <x-slot:middle class="!justify-end">
-            <x-input placeholder="Search students..." wire:model.live.debounce="search" icon="o-magnifying-glass" clearable />
-        </x-slot:middle>
-
-        <!-- ACTIONS -->
+    <x-header title="Add Results: {{ $exam->title }}" separator>
         <x-slot:actions>
             <x-button
-                label="Bulk Upload"
-                icon="o-arrow-up-tray"
-                @click="$wire.bulkUpload = true"
-                class="btn-outline"
-                responsive
+                label="View Exam"
+                icon="o-eye"
+                link="{{ route('teacher.exams.show', $exam->id) }}"
+                class="btn-ghost"
             />
             <x-button
                 label="Cancel"
-                icon="o-x-mark"
-                wire:click="cancel"
-                responsive
+                icon="o-arrow-left"
+                link="{{ route('teacher.exams.index') }}"
+                class="btn-ghost"
             />
         </x-slot:actions>
     </x-header>
 
-    <!-- Exam info card -->
-    <x-card class="mb-6">
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div>
-                <h3 class="text-sm font-medium text-gray-500">Exam Details</h3>
-                <div class="mt-2 space-y-1">
-                    <div class="flex justify-between">
-                        <span>Type:</span>
-                        <span class="font-medium">{{ ucfirst($exam->type) }}</span>
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-4">
+        <!-- Left column (3/4) - Results Form -->
+        <div class="space-y-6 lg:col-span-3">
+            <!-- Exam Information -->
+            <x-card title="Exam Information">
+                <div class="grid grid-cols-1 gap-4 md:grid-cols-4">
+                    <div>
+                        <div class="text-sm font-medium text-gray-500">Subject</div>
+                        <div class="font-semibold">{{ $exam->subject->name }}</div>
+                        <div class="text-sm text-gray-600">{{ $exam->subject->code }}</div>
                     </div>
-                    <div class="flex justify-between">
-                        <span>Date:</span>
-                        <span class="font-medium">{{ formatDate($exam->date) }}</span>
+
+                    <div>
+                        <div class="text-sm font-medium text-gray-500">Exam Date</div>
+                        <div class="font-semibold">{{ $exam->exam_date->format('M d, Y') }}</div>
                     </div>
-                    <div class="flex justify-between">
-                        <span>Duration:</span>
-                        <span class="font-medium">{{ $exam->duration }} minutes</span>
+
+                    <div>
+                        <div class="text-sm font-medium text-gray-500">Total Marks</div>
+                        <div class="text-2xl font-bold text-blue-600">{{ $exam->total_marks ?? 'N/A' }}</div>
+                    </div>
+
+                    <div>
+                        <div class="text-sm font-medium text-gray-500">Students</div>
+                        <div class="text-2xl font-bold text-purple-600">{{ $enrolledStudents->count() }}</div>
                     </div>
                 </div>
-            </div>
+            </x-card>
 
-            <div>
-                <h3 class="text-sm font-medium text-gray-500">Scoring</h3>
-                <div class="mt-2 space-y-1">
-                    <div class="flex justify-between">
-                        <span>Total Marks:</span>
-                        <span class="font-medium">{{ $exam->total_marks }}</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span>Passing Mark:</span>
-                        <span class="font-medium">{{ $exam->passing_mark }} ({{ round(($exam->passing_mark / $exam->total_marks) * 100) }}%)</span>
-                    </div>
-                </div>
-            </div>
-
-            <div>
-                <h3 class="text-sm font-medium text-gray-500">Students</h3>
-                <div class="mt-2 space-y-1">
-                    <div class="flex justify-between">
-                        <span>Total Students:</span>
-                        <span class="font-medium">{{ count($students) }}</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span>Results Entered:</span>
-                        <span class="font-medium">{{ count(array_filter($results, fn($score) => $score !== null)) + count(array_filter($absentStudents)) }} / {{ count($students) }}</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="mt-4">
-            <x-alert icon="o-information-circle" class="mb-4">
-                <span class="font-medium">Instructions:</span> Enter scores for each student or mark them as absent. All students must have a score or be marked as absent before saving the results.
-            </x-alert>
-
-            <div class="flex flex-col gap-3 mt-4 md:flex-row">
-                <div class="flex-1">
-                    <div class="flex gap-2">
-                        <x-input
-                            type="number"
-                            placeholder="Score threshold"
-                            wire:model="markAsAbsentBelowScore"
-                            min="0"
-                            max="{{ $exam->total_marks }}"
-                            class="w-full"
-                        />
+            <!-- Bulk Actions -->
+            <x-card title="Quick Entry">
+                <div class="flex flex-wrap items-center gap-4">
+                    @if(!$bulkMode)
                         <x-button
-                            label="Mark as Absent Below Score"
-                            wire:click="applyAbsentBelowScore"
-                            class="btn-secondary"
+                            label="Bulk Entry Mode"
+                            icon="o-squares-plus"
+                            wire:click="$set('bulkMode', true)"
+                            class="btn-outline"
                         />
-                    </div>
-                    <div class="mt-1 text-xs text-gray-500">
-                        This will mark students with scores below the threshold as absent.
-                    </div>
+                        <span class="text-sm text-gray-500">Use bulk entry to quickly set the same score for all students</span>
+                    @else
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="text-sm font-medium">Set all scores to:</span>
+                            <input
+                                type="number"
+                                wire:model.live="bulkScore"
+                                placeholder="Score"
+                                class="w-24 px-3 py-2 text-sm border border-gray-300 rounded"
+                                step="0.5"
+                                min="0"
+                                max="{{ $exam->total_marks }}"
+                            />
+                            <input
+                                type="text"
+                                wire:model.live="bulkRemarks"
+                                placeholder="Remarks (optional)"
+                                class="w-40 px-3 py-2 text-sm border border-gray-300 rounded"
+                            />
+                            <x-button
+                                label="Apply to All"
+                                icon="o-check"
+                                wire:click="bulkUpdateResults"
+                                class="btn-sm btn-success"
+                            />
+                            <x-button
+                                label="Cancel"
+                                icon="o-x-mark"
+                                wire:click="$set('bulkMode', false)"
+                                class="btn-sm btn-ghost"
+                            />
+                        </div>
+                    @endif
                 </div>
+            </x-card>
 
-                <div>
-                    <x-toggle
-                        label="Notify Students"
-                        wire:model="notifyStudents"
-                        hint="Send notifications to students about their results"
-                    />
-                </div>
-            </div>
-        </div>
-    </x-card>
-
-    <!-- Results entry table -->
-    <x-card>
-        <div class="overflow-x-auto">
-            <table class="table w-full table-zebra">
-                <thead>
-                    <tr>
-                        <th>Student</th>
-                        <th class="w-32 text-center">Score</th>
-                        <th class="w-32 text-center">Status</th>
-                        <th>Comments</th>
-                        <th class="w-20 text-center">Absent</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse (getFilteredStudents() as $student)
-                        <tr class="hover {{ $absentStudents[$student['id']] ? 'bg-base-300' : '' }}">
-                            <td>
-                                <div class="flex items-center gap-3">
-                                    <div class="avatar">
-                                        <div class="w-10 h-10 mask mask-squircle">
-                                            @if ($student['photo'])
-                                                <img src="{{ asset('storage/' . $student['photo']) }}" alt="{{ $student['name'] }}">
-                                            @else
-                                                <img src="{{ $student['profile_url'] ?? 'https://ui-avatars.com/api/?name=' . urlencode($student['name']) . '&color=7F9CF5&background=EBF4FF' }}" alt="{{ $student['name'] }}">
+            <!-- Results Entry Form -->
+            <x-card title="Enter Student Results">
+                @if($enrolledStudents->count() > 0)
+                    <div class="overflow-x-auto">
+                        <table class="table w-full table-zebra">
+                            <thead>
+                                <tr>
+                                    <th>Student</th>
+                                    <th>Score</th>
+                                    <th>Percentage</th>
+                                    <th>Grade</th>
+                                    <th>Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach($enrolledStudents as $enrollment)
+                                    @php
+                                        $student = $enrollment->childProfile;
+                                        $studentId = $student->id;
+                                        $result = $resultData[$studentId] ?? ['score' => '', 'remarks' => ''];
+                                        $score = !empty($result['score']) ? (float) $result['score'] : null;
+                                    @endphp
+                                    <tr>
+                                        <td>
+                                            <div class="flex items-center space-x-3">
+                                                <div class="avatar">
+                                                    <div class="w-10 h-10 rounded-full">
+                                                        <img src="{{ $student->user->profile_photo_url ?? 'https://ui-avatars.com/api/?name=' . urlencode($student->full_name) }}" alt="{{ $student->full_name }}" />
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div class="font-semibold">{{ $student->full_name }}</div>
+                                                    <div class="text-sm text-gray-500">ID: {{ $student->id }}</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <input
+                                                type="number"
+                                                wire:model.live="resultData.{{ $studentId }}.score"
+                                                wire:change="updateResult({{ $studentId }}, 'score', $event.target.value)"
+                                                placeholder="Enter score"
+                                                class="w-24 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                step="0.5"
+                                                min="0"
+                                                max="{{ $exam->total_marks }}"
+                                            />
+                                            @if($exam->total_marks)
+                                                <span class="ml-1 text-xs text-gray-500">/ {{ $exam->total_marks }}</span>
                                             @endif
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="font-bold">{{ $student['name'] }}</div>
-                                        <div class="text-sm opacity-50">{{ $student['program'] }}</div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td>
-                                <x-input
-                                    type="number"
-                                    min="0"
-                                    max="{{ $exam->total_marks }}"
-                                    wire:model.blur="results.{{ $student['id'] }}"
-                                    class="w-24 text-center"
-                                    :disabled="$absentStudents[$student['id']]"
-                                />
-                                @error("results.{$student['id']}")
-                                    <div class="mt-1 text-xs text-error">{{ $message }}</div>
-                                @enderror
-                            </td>
-                            <td class="text-center">
-                                @if ($absentStudents[$student['id']])
-                                    <x-badge label="Absent" color="secondary" />
-                                @elseif (is_numeric($results[$student['id']]))
-                                    @if ($results[$student['id']] >= $exam->passing_mark)
-                                        <x-badge label="Passed" color="success" />
-                                    @else
-                                        <x-badge label="Failed" color="error" />
-                                    @endif
-                                @else
-                                    <x-badge label="Pending" color="ghost" />
-                                @endif
-                            </td>
-                            <td>
-                                <x-textarea
-                                    placeholder="Optional comments"
-                                    wire:model.blur="comments.{{ $student['id'] }}"
-                                    rows="1"
-                                    class="h-10"
-                                />
-                            </td>
-                            <td class="text-center">
-                                <x-checkbox
-                                    wire:model.live="absentStudents.{{ $student['id'] }}"
-                                    wire:click="toggleAbsent('{{ $student['id'] }}')"
-                                />
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="5" class="py-8 text-center">
-                                <div class="flex flex-col items-center justify-center gap-2">
-                                    <x-icon name="o-users" class="w-16 h-16 text-gray-400" />
-                                    <h3 class="text-lg font-semibold text-gray-600">No students found</h3>
-                                    <p class="text-gray-500">No students are enrolled in this subject or match your search criteria</p>
-                                </div>
-                            </td>
-                        </tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
-
-        <x-slot:footer>
-            <div class="flex justify-end gap-2">
-                <x-button
-                    label="Cancel"
-                    icon="o-x-mark"
-                    wire:click="cancel"
-                />
-                <x-button
-                    label="Save Results"
-                    icon="o-check"
-                    wire:click="saveResults"
-                    class="btn-primary"
-                    :disabled="!isAllStudentsProcessed"
-                />
-            </div>
-        </x-slot:footer>
-    </x-card>
-
-    <!-- Bulk Upload Modal -->
-    <x-modal wire:model="bulkUpload" title="Bulk Upload Exam Results">
-        <div class="space-y-4">
-            <x-alert icon="o-information-circle">
-                Upload an Excel or CSV file containing student results. The file should have columns for Student ID, Score, and optional Comments.
-            </x-alert>
-
-            <div>
-                <label class="block mb-2 text-sm font-medium">Result File</label>
-                <input
-                    type="file"
-                    wire:model="uploadFile"
-                    class="w-full file-input file-input-bordered"
-                    accept=".xlsx,.xls,.csv"
-                />
-                <div class="mt-1 text-xs text-gray-500">
-                    Accepted formats: Excel (.xlsx, .xls) or CSV
+                                        </td>
+                                        <td>
+                                            @if($score !== null)
+                                                <span class="font-medium">{{ $this->getPercentage($score) }}</span>
+                                            @else
+                                                <span class="text-gray-400">-</span>
+                                            @endif
+                                        </td>
+                                        <td>
+                                            @if($score !== null)
+                                                @php $grade = $this->getGrade($score); @endphp
+                                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium {{ $gradeInfo['color'] }}">
+                                {{ $gradeInfo['grade'] }}
+                            </span>
+                            <span class="text-gray-600">{{ $gradeInfo['range'] }}</span>
+                        </div>
+                    @endforeach
                 </div>
-            </div>
+            </x-card>
 
-            <div>
-                <h3 class="mb-2 text-sm font-medium">Expected Format</h3>
-                <div class="p-3 rounded-lg bg-base-200">
-                    <pre class="text-xs">StudentID | Score | Comments (optional)
-s12345    | 85    | Good understanding of concepts
-s67890    | 72    | Needs improvement in section B
-...       | ...   | ...</pre>
+            <!-- Entry Guidelines -->
+            <x-card title="Entry Guidelines">
+                <div class="space-y-3 text-sm">
+                    <div>
+                        <div class="font-semibold">Score Entry</div>
+                        <p class="text-gray-600">Enter numerical scores only. Scores cannot exceed the total marks ({{ $exam->total_marks ?? 'N/A' }}).</p>
+                    </div>
+
+                    <div>
+                        <div class="font-semibold">Bulk Entry</div>
+                        <p class="text-gray-600">Use bulk entry to quickly assign the same score to all students, then adjust individual scores as needed.</p>
+                    </div>
+
+                    <div>
+                        <div class="font-semibold">Remarks</div>
+                        <p class="text-gray-600">Add optional remarks for specific feedback, notes about performance, or special circumstances.</p>
+                    </div>
+
+                    <div>
+                        <div class="font-semibold">Grades</div>
+                        <p class="text-gray-600">Grades are calculated automatically based on the percentage of total marks achieved.</p>
+                    </div>
                 </div>
-            </div>
+            </x-card>
 
-            <div>
-                <x-toggle
-                    label="First row contains headers"
-                    checked
-                />
-            </div>
+            <!-- Exam Summary -->
+            <x-card title="Exam Summary">
+                <div class="space-y-3 text-sm">
+                    <div>
+                        <div class="font-medium text-gray-500">Exam Type</div>
+                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium {{ match($exam->type) {
+                            'quiz' => 'bg-green-100 text-green-800',
+                            'midterm' => 'bg-yellow-100 text-yellow-800',
+                            'final' => 'bg-red-100 text-red-800',
+                            'assignment' => 'bg-blue-100 text-blue-800',
+                            'project' => 'bg-purple-100 text-purple-800',
+                            'practical' => 'bg-orange-100 text-orange-800',
+                            default => 'bg-gray-100 text-gray-600'
+                        } }}">
+                            {{ ucfirst($exam->type) }}
+                        </span>
+                    </div>
 
-            <div>
-                <x-toggle
-                    label="Mark student as absent if score is zero"
-                />
-            </div>
-        </div>
+                    @if($exam->duration)
+                        <div>
+                            <div class="font-medium text-gray-500">Duration</div>
+                            <div>
+                                @php
+                                    $minutes = $exam->duration;
+                                    if ($minutes >= 60) {
+                                        $hours = floor($minutes / 60);
+                                        $remainingMinutes = $minutes % 60;
+                                        echo $remainingMinutes > 0 ? "{$hours}h {$remainingMinutes}m" : "{$hours}h";
+                                    } else {
+                                        echo "{$minutes}m";
+                                    }
+                                @endphp
+                            </div>
+                        </div>
+                    @endif
 
-        <x-slot:footer>
-            <div class="flex justify-between w-full">
-                <x-button
-                    label="Download Template"
-                    icon="o-arrow-down-tray"
-                    class="btn-outline btn-sm"
-                />
-                <div>
+                    <div>
+                        <div class="font-medium text-gray-500">Academic Year</div>
+                        <div>{{ $exam->academicYear ? $exam->academicYear->name : 'Not specified' }}</div>
+                    </div>
+
+                    @if($exam->description)
+                        <div>
+                            <div class="font-medium text-gray-500">Description</div>
+                            <div class="p-2 text-xs rounded bg-gray-50">{{ $exam->description }}</div>
+                        </div>
+                    @endif
+                </div>
+            </x-card>
+
+            <!-- Quick Actions -->
+            <x-card title="Quick Actions">
+                <div class="space-y-2">
                     <x-button
-                        label="Cancel"
-                        @click="$wire.bulkUpload = false"
+                        label="View Exam Details"
+                        icon="o-eye"
+                        link="{{ route('teacher.exams.show', $exam->id) }}"
+                        class="justify-start w-full btn-ghost btn-sm"
                     />
                     <x-button
-                        label="Upload"
-                        icon="o-arrow-up-tray"
-                        wire:click="handleBulkUpload"
-                        class="btn-primary"
+                        label="Edit Exam"
+                        icon="o-pencil"
+                        link="{{ route('teacher.exams.edit', $exam->id) }}"
+                        class="justify-start w-full btn-ghost btn-sm"
+                    />
+                    <x-button
+                        label="All Exams"
+                        icon="o-document-text"
+                        link="{{ route('teacher.exams.index') }}"
+                        class="justify-start w-full btn-ghost btn-sm"
+                    />
+                    <x-button
+                        label="Subject Details"
+                        icon="o-academic-cap"
+                        link="{{ route('teacher.subjects.show', $exam->subject_id) }}"
+                        class="justify-start w-full btn-ghost btn-sm"
                     />
                 </div>
-            </div>
-        </x-slot:footer>
-    </x-modal>
+            </x-card>
+
+            <!-- Important Notes -->
+            <x-card title="Important Notes" class="border-yellow-200 bg-yellow-50">
+                <div class="space-y-2 text-sm text-yellow-800">
+                    <div class="flex items-start">
+                        <x-icon name="o-exclamation-triangle" class="w-4 h-4 mr-2 mt-0.5 text-yellow-600" />
+                        <div>
+                            <div class="font-semibold">First Time Entry</div>
+                            <p>This is the initial results entry for this exam. You can edit results later if needed.</p>
+                        </div>
+                    </div>
+
+                    <div class="flex items-start">
+                        <x-icon name="o-clock" class="w-4 h-4 mr-2 mt-0.5 text-yellow-600" />
+                        <div>
+                            <div class="font-semibold">Save Progress</div>
+                            <p>You don't need to enter all results at once. Save partial results and continue later.</p>
+                        </div>
+                    </div>
+
+                    <div class="flex items-start">
+                        <x-icon name="o-information-circle" class="w-4 h-4 mr-2 mt-0.5 text-yellow-600" />
+                        <div>
+                            <div class="font-semibold">Student Notifications</div>
+                            <p>Students will be able to view their results once you save them.</p>
+                        </div>
+                    </div>
+                </div>
+            </x-card>
+        </div>
+    </div>
 </div>

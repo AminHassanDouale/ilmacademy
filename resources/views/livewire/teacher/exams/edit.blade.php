@@ -1,549 +1,799 @@
-<?php
+$this->academic_year_id = $this->exam->academic_year_id ? (string) $this->exam->academic_year_id : '';
+        $this->description = $this->exam->description ?? '';
+        $this->instructions = $this->exam->instructions ?? '';
+        $this->duration = $this->exam->duration ? (string) $this->exam->duration : '';
+        $this->total_marks = $this->exam->total_marks ? (string) $this->exam->total_marks : '';
 
-use App\Models\Exam;
-use App\Models\Subject;
-use App\Models\TeacherProfile;
-use App\Models\ActivityLog;
-use Carbon\Carbon;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
-use Livewire\Attributes\Title;
-use Livewire\Attributes\Rule;
-use Livewire\WithFileUploads;
-use Livewire\Volt\Component;
-use Mary\Traits\Toast;
-
-new #[Title('Edit Exam')] class extends Component {
-    use Toast;
-    use WithFileUploads;
-
-    // Exam model
-    public Exam $exam;
-
-    // Form fields
-    #[Rule('required')]
-    public $subject_id;
-
-    #[Rule('required|date|after_or_equal:today')]
-    public $date;
-
-    #[Rule('nullable')]
-    public $time;
-
-    #[Rule('required|string|max:255')]
-    public $title;
-
-    #[Rule('required|string|max:255')]
-    public $type;
-
-    #[Rule('required|integer|min:1|max:480')]
-    public $duration;
-
-    #[Rule('required|integer|min:0|max:100')]
-    public $passing_mark;
-
-    #[Rule('required|integer|min:0')]
-    public $total_marks;
-
-    #[Rule('nullable|string')]
-    public $description;
-
-    #[Rule('nullable|string')]
-    public $instructions;
-
-    #[Rule('nullable|string')]
-    public $location;
-
-    #[Rule('boolean')]
-    public $is_online;
-
-    #[Rule('nullable|file|max:5120')]
-    public $new_attachment;
-
-    #[Rule('boolean')]
-    public $notify_students = false;
-
-    #[Rule('boolean')]
-    public $remove_attachment = false;
-
-    // Available options
-    public $subjects = [];
-    public $examTypes = [
-        ['label' => 'Quiz', 'value' => 'quiz'],
-        ['label' => 'Midterm', 'value' => 'midterm'],
-        ['label' => 'Final', 'value' => 'final'],
-        ['label' => 'Assignment', 'value' => 'assignment'],
-        ['label' => 'Project', 'value' => 'project']
-    ];
-
-    // Exam status
-    public $isUpcoming = false;
-    public $canEditDate = false;
-
-    public function mount(Exam $exam): void
-    {
-        $this->exam = $exam;
-
-        // Check if teacher owns this exam
-        $teacherProfile = Auth::user()->teacherProfile;
-        $isOwner = $teacherProfile && $teacherProfile->id === $this->exam->teacher_profile_id;
-
-        if (!$isOwner) {
-            $this->error('You do not have permission to edit this exam.');
-            redirect()->route('teacher.exams.index');
-            return;
-        }
-
-        // Check if exam is upcoming
-        $now = Carbon::now();
-        $examDate = Carbon::parse($this->exam->date);
-
-        $this->isUpcoming = $examDate->isAfter($now->startOfDay());
-        $this->canEditDate = $this->isUpcoming;
-
-        if (!$this->isUpcoming) {
-            $this->error('You cannot edit a completed exam.');
-            redirect()->route('teacher.exams.show', $this->exam->id);
-            return;
-        }
-
-        // Fill form fields with exam data
-        $this->subject_id = $this->exam->subject_id;
-        $this->date = $this->exam->date->format('Y-m-d');
-        $this->time = $this->exam->time;
-        $this->title = $this->exam->title;
-        $this->type = $this->exam->type;
-        $this->duration = $this->exam->duration;
-        $this->passing_mark = $this->exam->passing_mark;
-        $this->total_marks = $this->exam->total_marks;
-        $this->description = $this->exam->description;
-        $this->instructions = $this->exam->instructions;
-        $this->location = $this->exam->location;
-        $this->is_online = $this->exam->is_online;
-
-        // Set validation rules based on exam status
-        $this->setCustomValidation();
-
-        // Load available subjects
-        $this->loadSubjects();
-
-        // Log activity
-        ActivityLog::log(
-            Auth::id(),
-            'access',
-            'Teacher accessed edit exam page: ' . $this->exam->title,
-            Exam::class,
-            $this->exam->id,
-            ['ip' => request()->ip()]
-        );
-    }
-
-    // Set custom validation rules based on exam status
-    private function setCustomValidation(): void
-    {
-        if (!$this->canEditDate) {
-            $this->rules['date'] = 'required|date';
-        }
-    }
-
-    // Load available subjects for dropdown
-    private function loadSubjects(): void
-    {
-        $teacherProfile = Auth::user()->teacherProfile;
-
-        // If no teacher profile, create empty array
-        if (!$teacherProfile) {
-            $this->subjects = [];
-            return;
-        }
-
-        try {
-            // Try to get subjects assigned to this teacher
-            if (method_exists($teacherProfile, 'subjects')) {
-                $this->subjects = $teacherProfile->subjects()
-                    ->orderBy('name')
-                    ->get()
-                    ->map(function ($subject) {
-                        return [
-                            'id' => $subject->id,
-                            'name' => $subject->name . ' (' . $subject->code . ')'
-                        ];
-                    })
-                    ->toArray();
-            } else {
-                // Fallback to all subjects
-                $this->subjects = Subject::orderBy('name')
-                    ->take(30)
-                    ->get()
-                    ->map(function ($subject) {
-                        return [
-                            'id' => $subject->id,
-                            'name' => $subject->name . ' (' . $subject->code . ')'
-                        ];
-                    })
-                    ->toArray();
-            }
-        } catch (\Exception $e) {
-            // Log error
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error loading subjects: ' . $e->getMessage(),
-                TeacherProfile::class,
-                Auth::user()->teacherProfile->id,
-                ['ip' => request()->ip()]
-            );
-
-            // Set empty array
-            $this->subjects = [];
-        }
-    }
-
-    // Update exam
-    public function save(): void
-    {
-        // Validate form
-        $this->validate();
-
-        // Additional validation for marks
-        if ($this->passing_mark > $this->total_marks) {
-            $this->addError('passing_mark', 'Passing mark cannot be greater than total marks.');
-            return;
-        }
-
-        try {
-            // Handle file upload if there's a new attachment
-            $attachmentPath = $this->exam->attachment;
-
-            // Remove attachment if requested
-            if ($this->remove_attachment && $attachmentPath) {
-                Storage::disk('public')->delete($attachmentPath);
-                $attachmentPath = null;
-            }
-
-            // Upload new attachment
-            if ($this->new_attachment) {
-                if ($attachmentPath) {
-                    Storage::disk('public')->delete($attachmentPath);
-                }
-                $attachmentPath = $this->new_attachment->store('exam-attachments', 'public');
-            }
-
-            // Update exam
-            $this->exam->update([
+        Log::info('Exam Data Loaded', [
+            'exam_id' => $this->exam->id,
+            'form_data' => [
                 'subject_id' => $this->subject_id,
-                'date' => $this->date,
-                'time' => $this->time,
                 'title' => $this->title,
+                'exam_date' => $this->exam_date,
                 'type' => $this->type,
-                'duration' => $this->duration,
-                'passing_mark' => $this->passing_mark,
-                'total_marks' => $this->total_marks,
-                'description' => $this->description,
-                'instructions' => $this->instructions,
-                'location' => $this->is_online ? null : $this->location,
-                'is_online' => $this->is_online,
-                'attachment' => $attachmentPath,
+            ]
+        ]);
+    }
+
+    // Store original data for change tracking
+    protected function storeOriginalData(): void
+    {
+        $this->originalData = [
+            'subject_id' => $this->exam->subject_id,
+            'title' => $this->exam->title,
+            'exam_date' => $this->exam->exam_date->format('Y-m-d'),
+            'type' => $this->exam->type ?? '',
+            'academic_year_id' => $this->exam->academic_year_id ?? '',
+            'description' => $this->exam->description ?? '',
+            'instructions' => $this->exam->instructions ?? '',
+            'duration' => $this->exam->duration ?? '',
+            'total_marks' => $this->exam->total_marks ?? '',
+        ];
+    }
+
+    // Load form options
+    protected function loadOptions(): void
+    {
+        try {
+            // Load teacher's subjects
+            $subjects = $this->teacherProfile->subjects()->orderBy('name')->get();
+            $this->subjectOptions = $subjects->map(fn($subject) => [
+                'id' => $subject->id,
+                'name' => "{$subject->name} ({$subject->code})",
+                'curriculum' => $subject->curriculum ? $subject->curriculum->name : 'No Curriculum'
+            ])->toArray();
+
+            // Exam type options
+            $this->typeOptions = [
+                ['id' => 'quiz', 'name' => 'Quiz', 'description' => 'Short assessment or test'],
+                ['id' => 'midterm', 'name' => 'Midterm', 'description' => 'Mid-semester examination'],
+                ['id' => 'final', 'name' => 'Final', 'description' => 'Final examination'],
+                ['id' => 'assignment', 'name' => 'Assignment', 'description' => 'Take-home assignment'],
+                ['id' => 'project', 'name' => 'Project', 'description' => 'Long-term project assessment'],
+                ['id' => 'practical', 'name' => 'Practical', 'description' => 'Hands-on practical exam'],
+            ];
+
+            // Load academic years
+            $academicYears = AcademicYear::orderBy('start_date', 'desc')->get();
+            $this->academicYearOptions = $academicYears->map(fn($year) => [
+                'id' => $year->id,
+                'name' => $year->name,
+                'is_current' => $year->start_date <= now() && $year->end_date >= now()
+            ])->toArray();
+
+            Log::info('Exam Edit Options Loaded', [
+                'subjects_count' => count($this->subjectOptions),
+                'academic_years_count' => count($this->academicYearOptions),
             ]);
 
-            // Notify students if selected
-            if ($this->notify_students) {
-                // Send notifications to enrolled students
-                // Implementation would depend on your notification system
-                // This is a placeholder for that logic
-                if (method_exists($this->exam->subject, 'enrolledStudents')) {
-                    $students = $this->exam->subject->enrolledStudents;
-                    // Add notification code here
+        } catch (\Exception $e) {
+            Log::error('Failed to Load Exam Edit Options', [
+                'error' => $e->getMessage()
+            ]);
+
+            $this->subjectOptions = [];
+            $this->typeOptions = [];
+            $this->academicYearOptions = [];
+        }
+    }
+
+    // Save the exam
+    public function save(): void
+    {
+        Log::info('Exam Update Started', [
+            'teacher_user_id' => Auth::id(),
+            'exam_id' => $this->exam->id,
+            'form_data' => [
+                'subject_id' => $this->subject_id,
+                'title' => $this->title,
+                'exam_date' => $this->exam_date,
+                'type' => $this->type,
+            ]
+        ]);
+
+        try {
+            // Validate form data
+            Log::debug('Starting Validation');
+
+            $validated = $this->validate([
+                'subject_id' => 'required|integer|exists:subjects,id',
+                'title' => 'required|string|max:255',
+                'exam_date' => 'required|date',
+                'type' => 'required|string|in:' . implode(',', $this->validTypes),
+                'academic_year_id' => 'required|integer|exists:academic_years,id',
+                'description' => 'nullable|string|max:1000',
+                'instructions' => 'nullable|string|max:2000',
+                'duration' => 'nullable|integer|min:1|max:480',
+                'total_marks' => 'nullable|numeric|min:1|max:1000',
+            ], [
+                'subject_id.required' => 'Please select a subject.',
+                'subject_id.exists' => 'The selected subject is invalid.',
+                'title.required' => 'Please enter an exam title.',
+                'title.max' => 'Exam title must not exceed 255 characters.',
+                'exam_date.required' => 'Please select an exam date.',
+                'type.required' => 'Please select an exam type.',
+                'type.in' => 'The selected exam type is invalid.',
+                'academic_year_id.required' => 'Please select an academic year.',
+                'academic_year_id.exists' => 'The selected academic year is invalid.',
+                'description.max' => 'Description must not exceed 1000 characters.',
+                'instructions.max' => 'Instructions must not exceed 2000 characters.',
+                'duration.integer' => 'Duration must be a valid number.',
+                'duration.min' => 'Duration must be at least 1 minute.',
+                'duration.max' => 'Duration must not exceed 480 minutes (8 hours).',
+                'total_marks.numeric' => 'Total marks must be a valid number.',
+                'total_marks.min' => 'Total marks must be at least 1.',
+                'total_marks.max' => 'Total marks must not exceed 1000.',
+            ]);
+
+            // Check if teacher is assigned to the subject
+            if (!$this->teacherProfile->subjects()->where('subjects.id', $validated['subject_id'])->exists()) {
+                $this->addError('subject_id', 'You are not assigned to teach this subject.');
+                return;
+            }
+
+            // Check if exam date is reasonable
+            $examDate = \Carbon\Carbon::parse($validated['exam_date']);
+            if ($examDate->isAfter(now()->addYear())) {
+                $this->addError('exam_date', 'Exam date should not be more than a year in the future.');
+                return;
+            }
+
+            // Warning if exam has results and we're changing critical data
+            if ($this->exam->examResults->count() > 0) {
+                $criticalChanges = [];
+                if ($this->originalData['subject_id'] != $validated['subject_id']) {
+                    $criticalChanges[] = 'subject';
+                }
+                if ($this->originalData['total_marks'] != $validated['total_marks']) {
+                    $criticalChanges[] = 'total marks';
+                }
+                if ($this->originalData['type'] != $validated['type']) {
+                    $criticalChanges[] = 'exam type';
+                }
+
+                if (!empty($criticalChanges)) {
+                    $this->addError('general', 'Warning: This exam has existing results. Changing ' . implode(', ', $criticalChanges) . ' may affect grade calculations.');
                 }
             }
 
-            // Log activity
-            ActivityLog::log(
-                Auth::id(),
-                'update',
-                'Teacher updated exam: ' . $this->title,
-                Exam::class,
-                $this->exam->id,
-                ['ip' => request()->ip()]
-            );
+            // Track changes for activity log
+            $changes = $this->getChanges($validated, $examDate);
 
-            $this->success('Exam updated successfully.');
+            Log::info('Validation Passed', ['validated_data' => $validated, 'changes' => $changes]);
 
-            // Redirect to exam details
-            redirect()->route('teacher.exams.show', $this->exam->id);
+            // Prepare exam data
+            $examData = [
+                'subject_id' => $validated['subject_id'],
+                'academic_year_id' => $validated['academic_year_id'],
+                'title' => $validated['title'],
+                'exam_date' => $examDate,
+                'type' => $validated['type'],
+                'description' => $validated['description'] ?: null,
+                'instructions' => $validated['instructions'] ?: null,
+                'duration' => $validated['duration'] ? (int) $validated['duration'] : null,
+                'total_marks' => $validated['total_marks'] ? (float) $validated['total_marks'] : null,
+            ];
+
+            Log::info('Prepared Exam Data', ['exam_data' => $examData, 'changes' => $changes]);
+
+            DB::beginTransaction();
+            Log::debug('Database Transaction Started');
+
+            // Update exam
+            Log::debug('Updating Exam Record');
+            $this->exam->update($examData);
+            Log::info('Exam Updated Successfully', [
+                'exam_id' => $this->exam->id,
+                'subject_id' => $this->exam->subject_id,
+                'exam_date' => $this->exam->exam_date->toDateString()
+            ]);
+
+            // Get subject and academic year for logging
+            $subject = Subject::find($validated['subject_id']);
+            $academicYear = AcademicYear::find($validated['academic_year_id']);
+
+            // Log activity with changes
+            if (!empty($changes)) {
+                $changeDescription = "Updated exam '{$this->exam->title}' for {$subject->name} ({$subject->code}). Changes: " . implode(', ', $changes);
+
+                ActivityLog::log(
+                    Auth::id(),
+                    'update',
+                    $changeDescription,
+                    Exam::class,
+                    $this->exam->id,
+                    [
+                        'exam_id' => $this->exam->id,
+                        'changes' => $changes,
+                        'original_data' => $this->originalData,
+                        'new_data' => $validated,
+                        'exam_title' => $this->exam->title,
+                        'subject_name' => $subject->name,
+                        'subject_code' => $subject->code,
+                        'exam_type' => $validated['type'],
+                        'exam_date' => $examDate->toDateString(),
+                        'academic_year' => $academicYear->name,
+                        'has_results' => $this->exam->examResults->count() > 0,
+                    ]
+                );
+            }
+
+            DB::commit();
+            Log::info('Database Transaction Committed');
+
+            // Update original data for future comparisons
+            $this->storeOriginalData();
+
+            // Show success toast
+            $this->success("Exam '{$this->exam->title}' has been successfully updated.");
+            Log::info('Success Toast Displayed');
+
+            // Redirect to exam show page
+            Log::info('Redirecting to Exam Show Page', [
+                'exam_id' => $this->exam->id,
+                'route' => 'teacher.exams.show'
+            ]);
+
+            $this->redirect(route('teacher.exams.show', $this->exam->id));
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::error('Validation Failed', [
+                'errors' => $e->errors(),
+                'form_data' => [
+                    'subject_id' => $this->subject_id,
+                    'title' => $this->title,
+                    'exam_date' => $this->exam_date,
+                    'type' => $this->type,
+                ]
+            ]);
+
+            // Re-throw validation exception to show errors to user
+            throw $e;
+
         } catch (\Exception $e) {
-            // Log error
-            ActivityLog::log(
-                Auth::id(),
-                'error',
-                'Error updating exam: ' . $e->getMessage(),
-                Exam::class,
-                $this->exam->id,
-                ['ip' => request()->ip()]
-            );
+            DB::rollBack();
+            Log::error('Exam Update Failed', [
+                'error_message' => $e->getMessage(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'stack_trace' => $e->getTraceAsString(),
+                'exam_id' => $this->exam->id,
+                'form_data' => [
+                    'subject_id' => $this->subject_id,
+                    'title' => $this->title,
+                    'exam_date' => $this->exam_date,
+                    'type' => $this->type,
+                ]
+            ]);
 
-            $this->error('Failed to update exam: ' . $e->getMessage());
+            $this->error("An error occurred: {$e->getMessage()}");
         }
     }
 
-    // Cancel and go back
-    public function cancel(): void
+    // Get changes between original and new data
+    protected function getChanges(array $newData, $examDate): array
     {
-        redirect()->route('teacher.exams.show', $this->exam->id);
+        $changes = [];
+
+        // Map form fields to human-readable names
+        $fieldMap = [
+            'subject_id' => 'Subject',
+            'title' => 'Title',
+            'exam_date' => 'Exam Date',
+            'type' => 'Exam Type',
+            'academic_year_id' => 'Academic Year',
+            'description' => 'Description',
+            'instructions' => 'Instructions',
+            'duration' => 'Duration',
+            'total_marks' => 'Total Marks',
+        ];
+
+        // Compare basic fields
+        foreach ($newData as $field => $newValue) {
+            $originalValue = $this->originalData[$field] ?? null;
+
+            // Handle special cases
+            if ($field === 'subject_id') {
+                if ($originalValue != $newValue) {
+                    $oldSubject = Subject::find($originalValue);
+                    $newSubject = Subject::find($newValue);
+                    $changes[] = "Subject from {$oldSubject->name} to {$newSubject->name}";
+                }
+            } elseif ($field === 'academic_year_id') {
+                if ($originalValue != $newValue) {
+                    $oldYear = $originalValue ? AcademicYear::find($originalValue)->name : 'None';
+                    $newYear = AcademicYear::find($newValue)->name;
+                    $changes[] = "Academic Year from {$oldYear} to {$newYear}";
+                }
+            } elseif ($field === 'exam_date') {
+                $originalDate = $this->originalData['exam_date'];
+                $newDate = $examDate->format('Y-m-d');
+                if ($originalDate != $newDate) {
+                    $changes[] = "Date from {$originalDate} to {$newDate}";
+                }
+            } elseif ($originalValue != $newValue) {
+                $fieldName = $fieldMap[$field] ?? $field;
+                if (empty($originalValue) && !empty($newValue)) {
+                    $changes[] = "{$fieldName} added";
+                } elseif (!empty($originalValue) && empty($newValue)) {
+                    $changes[] = "{$fieldName} removed";
+                } else {
+                    $changes[] = "{$fieldName} updated";
+                }
+            }
+        }
+
+        return $changes;
     }
 
-    // Format date in d/m/Y format
-    public function formatDate($date): string
+    // Get selected subject details
+    public function getSelectedSubjectProperty(): ?array
     {
-        return Carbon::parse($date)->format('d/m/Y');
+        if ($this->subject_id) {
+            return collect($this->subjectOptions)->firstWhere('id', (int) $this->subject_id);
+        }
+
+        return null;
     }
 
-    // Toggle online exam
-    public function updatedIsOnline(): void
+    // Get selected academic year details
+    public function getSelectedAcademicYearProperty(): ?array
     {
-        if ($this->is_online) {
-            $this->location = null;
+        if ($this->academic_year_id) {
+            return collect($this->academicYearOptions)->firstWhere('id', (int) $this->academic_year_id);
+        }
+
+        return null;
+    }
+
+    // Get duration in hours and minutes
+    public function getFormattedDurationProperty(): ?string
+    {
+        if ($this->duration && is_numeric($this->duration)) {
+            $minutes = (int) $this->duration;
+
+            if ($minutes >= 60) {
+                $hours = floor($minutes / 60);
+                $remainingMinutes = $minutes % 60;
+                return $remainingMinutes > 0 ? "{$hours}h {$remainingMinutes}m" : "{$hours}h";
+            }
+
+            return "{$minutes}m";
+        }
+
+        return null;
+    }
+
+    // Get exam status
+    public function getExamStatusProperty(): array
+    {
+        $now = now();
+
+        if ($this->exam->exam_date > $now) {
+            return ['status' => 'upcoming', 'color' => 'bg-blue-100 text-blue-800', 'text' => 'Upcoming'];
+        } elseif ($this->exam->examResults->count() > 0) {
+            return ['status' => 'graded', 'color' => 'bg-green-100 text-green-800', 'text' => 'Graded'];
+        } else {
+            return ['status' => 'pending', 'color' => 'bg-yellow-100 text-yellow-800', 'text' => 'Pending Results'];
         }
     }
 
-    // Get attachment filename
-    public function getAttachmentFilename(): string
+    public function with(): array
     {
-        if (!$this->exam->attachment) {
-            return '';
-        }
-
-        $path = $this->exam->attachment;
-        $filename = basename($path);
-
-        // Truncate long filenames
-        if (strlen($filename) > 20) {
-            $extension = pathinfo($filename, PATHINFO_EXTENSION);
-            $basename = pathinfo($filename, PATHINFO_FILENAME);
-            $filename = substr($basename, 0, 16) . '...' . ($extension ? '.' . $extension : '');
-        }
-
-        return $filename;
+        return [
+            'selectedSubject' => $this->selectedSubject,
+            'selectedAcademicYear' => $this->selectedAcademicYear,
+            'formattedDuration' => $this->formattedDuration,
+            'examStatus' => $this->examStatus,
+        ];
     }
-};
-?>
+};?>
 
 <div>
     <!-- Page header -->
-    <x-header title="Edit Exam" separator progress-indicator>
-        <x-slot:subtitle>
-            Update information for: {{ $exam->title }}
-        </x-slot:subtitle>
+    <x-header title="Edit Exam: {{ $exam->title }}" separator>
+        <x-slot:middle class="!justify-end">
+            <!-- Exam Status -->
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium {{ $examStatus['color'] }}">
+                {{ $examStatus['text'] }}
+            </span>
+        </x-slot:middle>
+
+        <x-slot:actions>
+            <x-button
+                label="View Exam"
+                icon="o-eye"
+                link="{{ route('teacher.exams.show', $exam->id) }}"
+                class="btn-ghost"
+            />
+            <x-button
+                label="Back to Exams"
+                icon="o-arrow-left"
+                link="{{ route('teacher.exams.index') }}"
+                class="btn-ghost"
+            />
+        </x-slot:actions>
     </x-header>
 
-    <x-card>
-        <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <!-- Basic Exam Information -->
-            <div>
-                <h3 class="mb-4 text-lg font-medium">Exam Information</h3>
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <!-- Left column (2/3) - Form -->
+        <div class="lg:col-span-2">
+            <x-card title="Exam Information">
+                <form wire:submit="save" class="space-y-6">
+                    @error('general')
+                        <div class="p-4 border border-orange-200 rounded-md bg-orange-50">
+                            <div class="flex">
+                                <x-icon name="o-exclamation-triangle" class="w-5 h-5 text-orange-400 mr-3 mt-0.5" />
+                                <div class="text-sm text-orange-700">{{ $message }}</div>
+                            </div>
+                        </div>
+                    @enderror
 
-                <div class="space-y-4">
-                    <x-select
-                        label="Subject"
-                        wire:model="subject_id"
-                        :options="$subjects"
-                        option-label="name"
-                        option-value="id"
-                        placeholder="Select a subject"
-                        hint="Select the subject for this exam"
-                        required
-                    />
+                    <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                        <!-- Subject -->
+                        <div class="md:col-span-2">
+                            <label class="block mb-2 text-sm font-medium text-gray-700">Subject *</label>
+                            <select
+                                wire:model.live="subject_id"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                required
+                            >
+                                <option value="">Select a subject</option>
+                                @foreach($subjectOptions as $subject)
+                                    <option value="{{ $subject['id'] }}">{{ $subject['name'] }}</option>
+                                @endforeach
+                            </select>
+                            @if($selectedSubject)
+                                <p class="mt-1 text-xs text-gray-500">{{ $selectedSubject['curriculum'] }}</p>
+                            @endif
+                            @error('subject_id')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
 
-                    <x-input
-                        label="Title"
-                        wire:model="title"
-                        placeholder="e.g. Midterm Examination"
-                        hint="Descriptive title for this exam"
-                        required
-                    />
-
-                    <x-select
-                        label="Type"
-                        wire:model="type"
-                        :options="$examTypes"
-                        option-label="label"
-                        option-value="value"
-                        hint="Select the type of assessment"
-                        required
-                    />
-
-                    <x-textarea
-                        label="Description"
-                        wire:model="description"
-                        placeholder="Brief description of the exam content and topics covered..."
-                        hint="Provides students with information about what to expect"
-                        rows="4"
-                    />
-                </div>
-            </div>
-
-            <!-- Date, Time and Marks -->
-            <div>
-                <h3 class="mb-4 text-lg font-medium">Schedule and Scoring</h3>
-
-                <div class="space-y-4">
-                    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <x-input
-                            type="date"
-                            label="Date"
-                            wire:model="date"
-                            min="{{ now()->format('Y-m-d') }}"
-                            hint="{{ $canEditDate ? 'Exam date' : 'Date cannot be changed for past exams' }}"
-                            :disabled="!$canEditDate"
-                            required
-                        />
-
-                        <x-input
-                            type="time"
-                            label="Time (optional)"
-                            wire:model="time"
-                            hint="Start time if applicable"
-                        />
-                    </div>
-
-                    <x-input
-                        type="number"
-                        label="Duration (minutes)"
-                        wire:model="duration"
-                        min="1"
-                        max="480"
-                        hint="How long students have to complete the exam"
-                        required
-                    />
-
-                    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <x-input
-                            type="number"
-                            label="Total Marks"
-                            wire:model="total_marks"
-                            min="0"
-                            hint="Maximum possible score"
-                            required
-                        />
-
-                        <x-input
-                            type="number"
-                            label="Passing Mark"
-                            wire:model="passing_mark"
-                            min="0"
-                            max="{{ $total_marks }}"
-                            hint="Minimum score to pass"
-                            required
-                        />
-                    </div>
-                </div>
-            </div>
-
-            <!-- Location -->
-            <div>
-                <h3 class="mb-4 text-lg font-medium">Location</h3>
-
-                <div class="p-4 border rounded-lg border-base-300">
-                    <x-toggle
-                        label="Online Exam"
-                        wire:model.live="is_online"
-                        hint="Toggle for online or in-person exam"
-                    />
-
-                    @if (!$is_online)
-                        <div class="mt-4">
+                        <!-- Exam Title -->
+                        <div class="md:col-span-2">
                             <x-input
-                                label="Exam Location"
-                                wire:model="location"
-                                placeholder="e.g. Room 101, Main Building"
-                                hint="Where the exam will take place"
+                                label="Exam Title"
+                                wire:model.live="title"
+                                placeholder="Enter exam title"
+                                required
                             />
+                            @error('title')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Exam Type -->
+                        <div>
+                            <label class="block mb-2 text-sm font-medium text-gray-700">Exam Type *</label>
+                            <select
+                                wire:model.live="type"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                required
+                            >
+                                @foreach($typeOptions as $type)
+                                    <option value="{{ $type['id'] }}">{{ $type['name'] }}</option>
+                                @endforeach
+                            </select>
+                            @if($type)
+                                @php
+                                    $selectedType = collect($typeOptions)->firstWhere('id', $type);
+                                @endphp
+                                @if($selectedType)
+                                    <p class="mt-1 text-xs text-gray-500">{{ $selectedType['description'] }}</p>
+                                @endif
+                            @endif
+                            @error('type')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Academic Year -->
+                        <div>
+                            <label class="block mb-2 text-sm font-medium text-gray-700">Academic Year *</label>
+                            <select
+                                wire:model.live="academic_year_id"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                required
+                            >
+                                <option value="">Select academic year</option>
+                                @foreach($academicYearOptions as $year)
+                                    <option value="{{ $year['id'] }}">
+                                        {{ $year['name'] }}
+                                        @if($year['is_current'])
+                                            (Current)
+                                        @endif
+                                    </option>
+                                @endforeach
+                            </select>
+                            @error('academic_year_id')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Exam Date -->
+                        <div>
+                            <x-input
+                                label="Exam Date"
+                                wire:model.live="exam_date"
+                                type="date"
+                                required
+                            />
+                            @error('exam_date')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Duration -->
+                        <div>
+                            <x-input
+                                label="Duration (minutes)"
+                                wire:model.live="duration"
+                                type="number"
+                                min="1"
+                                max="480"
+                                placeholder="e.g., 60"
+                            />
+                            @if($formattedDuration)
+                                <p class="mt-1 text-xs text-green-600">{{ $formattedDuration }}</p>
+                            @endif
+                            @error('duration')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Total Marks -->
+                        <div>
+                            <x-input
+                                label="Total Marks"
+                                wire:model.live="total_marks"
+                                type="number"
+                                min="1"
+                                max="1000"
+                                step="0.5"
+                                placeholder="e.g., 100"
+                            />
+                            @error('total_marks')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Description -->
+                        <div class="md:col-span-2">
+                            <x-textarea
+                                label="Description"
+                                wire:model.live="description"
+                                placeholder="Brief description of the exam content and scope"
+                                rows="3"
+                            />
+                            @error('description')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Instructions -->
+                        <div class="md:col-span-2">
+                            <x-textarea
+                                label="Instructions"
+                                wire:model.live="instructions"
+                                placeholder="Exam instructions for students (what to bring, rules, etc.)"
+                                rows="4"
+                            />
+                            @error('instructions')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end pt-6">
+                        <x-button
+                            label="Cancel"
+                            link="{{ route('teacher.exams.show', $exam->id) }}"
+                            class="mr-2"
+                        />
+                        <x-button
+                            label="Update Exam"
+                            icon="o-check"
+                            type="submit"
+                            color="primary"
+                        />
+                    </div>
+                </form>
+            </x-card>
+        </div>
+
+        <!-- Right column (1/3) - Preview and Info -->
+        <div class="space-y-6">
+            <!-- Current Exam Info -->
+            <x-card title="Current Exam">
+                <div class="space-y-3 text-sm">
+                    <div>
+                        <div class="font-medium text-gray-500">Subject</div>
+                        <div class="font-semibold">{{ $exam->subject->name }}</div>
+                        <div class="text-xs text-gray-500">{{ $exam->subject->code }}</div>
+                    </div>
+
+                    <div>
+                        <div class="font-medium text-gray-500">Current Date</div>
+                        <div>{{ $exam->exam_date->format('l, M d, Y') }}</div>
+                    </div>
+
+                    <div>
+                        <div class="font-medium text-gray-500">Current Status</div>
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $examStatus['color'] }}">
+                            {{ $examStatus['text'] }}
+                        </span>
+                    </div>
+
+                    @if($exam->examResults->count() > 0)
+                        <div>
+                            <div class="font-medium text-gray-500">Results</div>
+                            <div class="text-orange-600">
+                                <x-icon name="o-exclamation-triangle" class="inline w-4 h-4 mr-1" />
+                                {{ $exam->examResults->count() }} results exist
+                            </div>
+                            <div class="text-xs text-gray-500">Be careful when changing exam details</div>
                         </div>
                     @endif
                 </div>
-            </div>
+            </x-card>
 
-            <!-- Additional Information -->
-            <div>
-                <h3 class="mb-4 text-lg font-medium">Additional Information</h3>
+            <!-- Updated Preview -->
+            <x-card title="Updated Preview">
+                <div class="p-4 rounded-lg bg-base-200">
+                    <div class="space-y-3 text-sm">
+                        <div>
+                            <strong>Subject:</strong>
+                            @if($selectedSubject)
+                                <div class="mt-1">{{ $selectedSubject['name'] }}</div>
+                                <div class="text-xs text-gray-500">{{ $selectedSubject['curriculum'] }}</div>
+                            @else
+                                <span class="text-gray-500">No subject selected</span>
+                            @endif
+                        </div>
 
-                <div class="space-y-4">
-                    <x-textarea
-                        label="Instructions"
-                        wire:model="instructions"
-                        placeholder="Specific instructions for students taking the exam..."
-                        hint="Special requirements, materials needed, rules, etc."
-                        rows="4"
-                    />
+                        <div>
+                            <strong>Title:</strong>
+                            <div class="mt-1">{{ $title ?: 'Exam Title' }}</div>
+                        </div>
+
+                        <div>
+                            <strong>Type:</strong>
+                            @if($type)
+                                @php
+                                    $selectedType = collect($typeOptions)->firstWhere('id', $type);
+                                @endphp
+                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ml-2 {{ match($type) {
+                                    'quiz' => 'bg-green-100 text-green-800',
+                                    'midterm' => 'bg-yellow-100 text-yellow-800',
+                                    'final' => 'bg-red-100 text-red-800',
+                                    'assignment' => 'bg-blue-100 text-blue-800',
+                                    'project' => 'bg-purple-100 text-purple-800',
+                                    'practical' => 'bg-orange-100 text-orange-800',
+                                    default => 'bg-gray-100 text-gray-600'
+                                } }}">
+                                    {{ $selectedType['name'] ?? ucfirst($type) }}
+                                </span>
+                            @else
+                                <span class="text-gray-500">No type selected</span>
+                            @endif
+                        </div>
+
+                        @if($exam_date)
+                            <div>
+                                <strong>Updated Date:</strong>
+                                <div class="mt-1">
+                                    {{ \Carbon\Carbon::parse($exam_date)->format('l, M d, Y') }}
+                                </div>
+                                <div class="text-xs text-gray-500">{{ \Carbon\Carbon::parse($exam_date)->diffForHumans() }}</div>
+                            </div>
+                        @endif
+
+                        @if($formattedDuration)
+                            <div>
+                                <strong>Duration:</strong>
+                                <div class="mt-1">{{ $formattedDuration }}</div>
+                            </div>
+                        @endif
+
+                        @if($total_marks)
+                            <div>
+                                <strong>Total Marks:</strong>
+                                <div class="mt-1">{{ $total_marks }} marks</div>
+                            </div>
+                        @endif
+
+                        @if($selectedAcademicYear)
+                            <div>
+                                <strong>Academic Year:</strong>
+                                <div class="mt-1">{{ $selectedAcademicYear['name'] }}</div>
+                            </div>
+                        @endif
+
+                        @if($description)
+                            <div>
+                                <strong>Description:</strong>
+                                <div class="p-2 mt-1 text-xs rounded bg-gray-50">{{ $description }}</div>
+                            </div>
+                        @endif
+
+                        @if($instructions)
+                            <div>
+                                <strong>Instructions:</strong>
+                                <div class="p-2 mt-1 text-xs rounded bg-gray-50">{{ $instructions }}</div>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+            </x-card>
+
+            <!-- Edit Guidelines -->
+            <x-card title="Edit Guidelines">
+                <div class="space-y-4 text-sm">
+                    @if($exam->examResults->count() > 0)
+                        <div>
+                            <div class="font-semibold text-orange-600">Results Warning</div>
+                            <p class="text-gray-600">This exam has {{ $exam->examResults->count() }} existing results. Changing critical details like total marks or exam type may affect grade calculations.</p>
+                        </div>
+                    @endif
 
                     <div>
-                        <label class="block mb-2 text-sm font-medium">Attachment</label>
-                        @if ($exam->attachment)
-                            <div class="flex items-center justify-between p-2 mb-2 border rounded-lg border-base-300">
-                                <div class="flex items-center gap-2">
-                                    <x-icon name="o-document-text" class="w-5 h-5 text-primary" />
-                                    <span>{{ getAttachmentFilename() }}</span>
-                                </div>
-                                <div class="flex gap-2">
-                                    <x-button
-                                        icon="o-arrow-down-tray"
-                                        size="xs"
-                                        tooltip="Download"
-                                        href="{{ Storage::url($exam->attachment) }}"
-                                        target="_blank"
-                                    />
-                                    <x-button
-                                        icon="o-trash"
-                                        color="error"
-                                        size="xs"
-                                        tooltip="Remove"
-                                        wire:click="$set('remove_attachment', true)"
-                                    />
-                                </div>
-                            </div>
-                        @endif
-
-                        @if (!$exam->attachment || $remove_attachment)
-                            <input
-                                type="file"
-                                wire:model="new_attachment"
-                                class="w-full file-input file-input-bordered"
-                                accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip"
-                            />
-                            <div class="mt-1 text-xs text-gray-500">
-                                Upload exam materials, study guides, or resources (max 5MB)
-                            </div>
-                        @endif
-
-                        @error('new_attachment')
-                            <div class="mt-1 text-sm text-error">{{ $message }}</div>
-                        @enderror
+                        <div class="font-semibold">Date Changes</div>
+                        <p class="text-gray-600">
+                            @if($examStatus['status'] === 'upcoming')
+                                You can change the exam date, but notify students about any changes.
+                            @elseif($examStatus['status'] === 'pending')
+                                This exam has passed. Date changes are for record-keeping only.
+                            @else
+                                This exam is completed with results. Date changes won't affect grades.
+                            @endif
+                        </p>
                     </div>
 
-                    <x-toggle
-                        label="Notify Students"
-                        wire:model="notify_students"
-                        hint="Send notifications to enrolled students about these changes"
+                    <div>
+                        <div class="font-semibold">Subject Changes</div>
+                        <p class="text-gray-600">Changing the subject will move this exam to a different subject. Ensure you're assigned to the new subject.</p>
+                    </div>
+
+                    <div>
+                        <div class="font-semibold">Marks Changes</div>
+                        <p class="text-gray-600">If results exist, changing total marks may require recalculating grades and percentages.</p>
+                    </div>
+                </div>
+            </x-card>
+
+            <!-- Quick Actions -->
+            <x-card title="Quick Actions">
+                <div class="space-y-2">
+                    <x-button
+                        label="View Exam Details"
+                        icon="o-eye"
+                        link="{{ route('teacher.exams.show', $exam->id) }}"
+                        class="justify-start w-full btn-ghost btn-sm"
+                    />
+                    @if($exam->examResults->count() > 0)
+                        <x-button
+                            label="Manage Results"
+                            icon="o-chart-bar"
+                            link="{{ route('teacher.exams.results', $exam->id) }}"
+                            class="justify-start w-full btn-ghost btn-sm"
+                        />
+                    @endif
+                    <x-button
+                        label="All Exams"
+                        icon="o-document-text"
+                        link="{{ route('teacher.exams.index') }}"
+                        class="justify-start w-full btn-ghost btn-sm"
+                    />
+                    <x-button
+                        label="Subject Details"
+                        icon="o-academic-cap"
+                        link="{{ route('teacher.subjects.show', $exam->subject_id) }}"
+                        class="justify-start w-full btn-ghost btn-sm"
                     />
                 </div>
-            </div>
+            </x-card>
         </div>
-
-        <x-slot:footer>
-            <div class="flex justify-end gap-2">
-                <x-button
-                    label="Cancel"
-                    icon="o-x-mark"
-                    wire:click="cancel"
-                />
-
-                <x-button
-                    label="Save Changes"
-                    icon="o-check"
-                    wire:click="save"
-                    class="btn-primary"
-                />
-            </div>
-        </x-slot:footer>
-    </x-card>
+    </div>
 </div>

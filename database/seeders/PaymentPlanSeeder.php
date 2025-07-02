@@ -9,187 +9,226 @@ use Illuminate\Support\Facades\DB;
 
 class PaymentPlanSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
-        // Safely clear existing payment plans
-        $this->clearPaymentPlans();
-
-        // Get all curricula
         $curricula = Curriculum::all();
 
-        if ($curricula->isEmpty()) {
-            $this->command->warn('No curricula found. Please run CurriculumSeeder first.');
-            return;
-        }
-
-        // Create payment plans for each curriculum
-        foreach ($curricula as $curriculum) {
-            $this->createCurriculumPlans($curriculum);
-        }
-
-        // Create general payment plans
-        $this->createGeneralPlans();
-
-        $this->command->info('PaymentPlan seeder completed successfully!');
-        $this->command->info('Created ' . PaymentPlan::count() . ' payment plans.');
-    }
-
-    /**
-     * Safely clear existing payment plans by handling foreign key constraints
-     */
-    private function clearPaymentPlans(): void
-    {
-        try {
-            // Option 1: Try to delete all payment plans (respects foreign keys)
-            PaymentPlan::query()->delete();
-        } catch (\Exception $e) {
-            // Option 2: If delete fails, disable foreign key checks temporarily
-            $this->command->warn('Standard delete failed, using foreign key disable method...');
-
-            DB::statement('SET FOREIGN_KEY_CHECKS=0;');
-            PaymentPlan::truncate();
-            DB::statement('SET FOREIGN_KEY_CHECKS=1;');
-        }
-    }
-
-    /**
-     * Create payment plans for a specific curriculum
-     */
-    private function createCurriculumPlans(Curriculum $curriculum): void
-    {
-        $plans = [
-            [
-                'name' => 'Monthly Plan - ' . $curriculum->name,
-                'type' => 'monthly',
-                'amount' => 299.00,
-                'description' => 'Monthly payment plan for ' . $curriculum->name . '. Spread your payments over 12 months.',
-                'installments' => 12,
-                'frequency' => 'monthly',
-            ],
-            [
-                'name' => 'Quarterly Plan - ' . $curriculum->name,
-                'type' => 'quarterly',
-                'amount' => 850.00,
-                'description' => 'Quarterly payment plan for ' . $curriculum->name . '. Pay every 3 months.',
-                'installments' => 4,
-                'frequency' => 'quarterly',
-            ],
-            [
-                'name' => 'Semi-Annual Plan - ' . $curriculum->name,
-                'type' => 'semi-annual',
-                'amount' => 1650.00,
-                'description' => 'Semi-annual payment plan for ' . $curriculum->name . '. Pay twice a year.',
-                'installments' => 2,
-                'frequency' => 'semi-annual',
-            ],
-            [
-                'name' => 'Annual Plan - ' . $curriculum->name,
-                'type' => 'annual',
-                'amount' => 3200.00,
-                'description' => 'Annual payment plan for ' . $curriculum->name . '. Pay once per year.',
-                'installments' => 1,
-                'frequency' => 'annual',
-            ],
-            [
-                'name' => 'Full Payment - ' . $curriculum->name,
-                'type' => 'one-time',
-                'amount' => 2999.00,
-                'description' => 'Full payment upfront for ' . $curriculum->name . '. Save $201 with this option!',
-                'installments' => 1,
-                'frequency' => 'one-time',
-            ],
-        ];
-
-        foreach ($plans as $planData) {
-            PaymentPlan::create(array_merge($planData, [
-                'currency' => 'USD',
-                'curriculum_id' => $curriculum->id,
-                'is_active' => true,
-            ]));
-        }
-    }
-
-    /**
-     * Create general payment plans (not tied to specific curriculum)
-     */
-    private function createGeneralPlans(): void
-    {
+        // Create general payment plans (not tied to specific curriculum)
         $generalPlans = [
             [
-                'name' => 'Basic Monthly',
+                'name' => 'Standard Monthly Plan',
+                'description' => 'Standard monthly payment option for all programs',
                 'type' => 'monthly',
-                'amount' => 199.00,
-                'description' => 'Basic monthly payment plan - perfect for getting started.',
+                'amount' => 150.00,
+                'currency' => 'USD',
                 'installments' => 12,
                 'frequency' => 'monthly',
+                'due_day' => 1,
+                'curriculum_id' => null,
+                'is_active' => true,
+                'is_default' => true,
+                'auto_generate_invoices' => true,
+                'grace_period_days' => 7,
+                'late_fee_amount' => 25.00,
+                'payment_instructions' => 'Payment due on the 1st of each month',
+                'accepted_payment_methods' => ['bank_transfer', 'credit_card', 'debit_card', 'online_payment'],
             ],
             [
-                'name' => 'Standard Quarterly',
+                'name' => 'Quarterly Savings Plan',
+                'description' => 'Pay quarterly and save 5% compared to monthly payments',
                 'type' => 'quarterly',
-                'amount' => 580.00,
-                'description' => 'Standard quarterly payment plan - balance convenience and savings.',
+                'amount' => 427.50, // 3 months at $150 - 5% discount
+                'currency' => 'USD',
                 'installments' => 4,
                 'frequency' => 'quarterly',
+                'due_day' => 1,
+                'curriculum_id' => null,
+                'is_active' => true,
+                'is_default' => false,
+                'auto_generate_invoices' => true,
+                'discount_percentage' => 5.00,
+                'grace_period_days' => 14,
+                'late_fee_percentage' => 2.50,
+                'payment_instructions' => 'Payment due quarterly on the 1st day of the quarter',
+                'accepted_payment_methods' => ['bank_transfer', 'credit_card', 'check'],
             ],
             [
-                'name' => 'Premium Semi-Annual',
-                'type' => 'semi-annual',
-                'amount' => 1100.00,
-                'description' => 'Premium semi-annual plan - great balance of convenience and savings.',
-                'installments' => 2,
-                'frequency' => 'semi-annual',
-            ],
-            [
-                'name' => 'Premium Annual',
+                'name' => 'Annual Discount Plan',
+                'description' => 'Pay annually and save 10% - Best Value!',
                 'type' => 'annual',
-                'amount' => 2200.00,
-                'description' => 'Premium annual payment plan - best value option.',
+                'amount' => 1620.00, // 12 months at $150 - 10% discount
+                'currency' => 'USD',
                 'installments' => 1,
                 'frequency' => 'annual',
-            ],
-            [
-                'name' => 'Flexible One-Time',
-                'type' => 'one-time',
-                'amount' => 2099.00,
-                'description' => 'Flexible one-time payment - immediate access with maximum savings.',
-                'installments' => 1,
-                'frequency' => 'one-time',
-            ],
-            [
-                'name' => 'Student Discount Monthly',
-                'type' => 'monthly',
-                'amount' => 149.00,
-                'description' => 'Special monthly rate for students (ID verification required).',
-                'installments' => 12,
-                'frequency' => 'monthly',
-            ],
-            [
-                'name' => 'Enterprise Annual',
-                'type' => 'annual',
-                'amount' => 4500.00,
-                'description' => 'Enterprise annual plan with premium features and support.',
-                'installments' => 1,
-                'frequency' => 'annual',
-            ],
-            [
-                'name' => 'Trial Monthly',
-                'type' => 'monthly',
-                'amount' => 99.00,
-                'description' => 'Trial monthly plan for first-time users.',
-                'installments' => 3,
-                'frequency' => 'monthly',
+                'due_day' => 1,
+                'curriculum_id' => null,
+                'is_active' => true,
+                'is_default' => false,
+                'auto_generate_invoices' => true,
+                'discount_percentage' => 10.00,
+                'grace_period_days' => 30,
+                'late_fee_amount' => 100.00,
+                'payment_instructions' => 'Annual payment due at enrollment',
+                'accepted_payment_methods' => ['bank_transfer', 'check'],
+                'terms_and_conditions' => 'Annual payments are non-refundable after 30 days',
             ],
         ];
 
         foreach ($generalPlans as $planData) {
-            PaymentPlan::create(array_merge($planData, [
+            PaymentPlan::create($planData);
+        }
+
+        // Create curriculum-specific payment plans
+        foreach ($curricula as $curriculum) {
+            $curriculumPlans = $this->getCurriculumSpecificPlans($curriculum);
+
+            foreach ($curriculumPlans as $planData) {
+                PaymentPlan::create($planData);
+            }
+        }
+
+        // Create some special promotional plans
+        $this->createPromotionalPlans();
+    }
+
+    private function getCurriculumSpecificPlans($curriculum): array
+    {
+        $baseAmount = $curriculum->price ?? 200.00;
+        $curriculumName = $curriculum->name;
+
+        return [
+            [
+                'name' => "{$curriculumName} - Monthly",
+                'description' => "Monthly payment plan specifically for {$curriculumName}",
+                'type' => 'monthly',
+                'amount' => $baseAmount * 0.1, // 10% of total per month
+                'currency' => $curriculum->currency ?? 'USD',
+                'installments' => 10, // 10-month program
+                'frequency' => 'monthly',
+                'due_day' => 15,
+                'curriculum_id' => $curriculum->id,
+                'is_active' => true,
+                'is_default' => true,
+                'auto_generate_invoices' => true,
+                'setup_fee' => $baseAmount * 0.05, // 5% setup fee
+                'grace_period_days' => 5,
+                'late_fee_amount' => 15.00,
+                'payment_instructions' => "Monthly payment for {$curriculumName} due on the 15th",
+                'accepted_payment_methods' => ['bank_transfer', 'credit_card', 'debit_card'],
+                'metadata' => [
+                    'curriculum_duration' => $curriculum->duration_months ?? 10,
+                    'curriculum_level' => $curriculum->level ?? 'beginner',
+                ],
+            ],
+            [
+                'name' => "{$curriculumName} - One-Time",
+                'description' => "Full payment option for {$curriculumName} with discount",
+                'type' => 'one-time',
+                'amount' => $baseAmount * 0.85, // 15% discount for full payment
+                'currency' => $curriculum->currency ?? 'USD',
+                'installments' => 1,
+                'frequency' => 'one-time',
+                'curriculum_id' => $curriculum->id,
+                'is_active' => true,
+                'is_default' => false,
+                'auto_generate_invoices' => true,
+                'discount_percentage' => 15.00,
+                'grace_period_days' => 14,
+                'payment_instructions' => "Full payment for {$curriculumName} due at enrollment",
+                'accepted_payment_methods' => ['bank_transfer', 'credit_card', 'check'],
+                'terms_and_conditions' => 'Full payment plans include 15% discount and priority enrollment',
+                'metadata' => [
+                    'curriculum_duration' => $curriculum->duration_months ?? 10,
+                    'curriculum_level' => $curriculum->level ?? 'beginner',
+                    'includes_materials' => true,
+                ],
+            ],
+        ];
+    }
+
+    private function createPromotionalPlans(): void
+    {
+        $promotionalPlans = [
+            [
+                'name' => 'Early Bird Special',
+                'description' => 'Limited time offer - 20% off first 3 months',
+                'type' => 'monthly',
+                'amount' => 120.00, // $150 - 20% discount
                 'currency' => 'USD',
+                'installments' => 3,
+                'frequency' => 'monthly',
+                'due_day' => 1,
                 'curriculum_id' => null,
                 'is_active' => true,
-            ]));
+                'is_default' => false,
+                'auto_generate_invoices' => true,
+                'discount_percentage' => 20.00,
+                'discount_valid_until' => now()->addMonths(2),
+                'grace_period_days' => 7,
+                'late_fee_amount' => 20.00,
+                'payment_instructions' => 'Early bird promotional rate - limited time only',
+                'accepted_payment_methods' => ['bank_transfer', 'credit_card', 'debit_card'],
+                'terms_and_conditions' => 'Promotional rate applies to first 3 months only. Standard rates apply thereafter.',
+                'metadata' => [
+                    'promotion_code' => 'EARLY2025',
+                    'promotion_type' => 'early_bird',
+                    'max_enrollments' => 50,
+                ],
+            ],
+            [
+                'name' => 'Family Discount Plan',
+                'description' => 'Special rate for families with multiple children',
+                'type' => 'monthly',
+                'amount' => 135.00, // $150 - 10% family discount
+                'currency' => 'USD',
+                'installments' => 12,
+                'frequency' => 'monthly',
+                'due_day' => 1,
+                'curriculum_id' => null,
+                'is_active' => true,
+                'is_default' => false,
+                'auto_generate_invoices' => true,
+                'discount_percentage' => 10.00,
+                'grace_period_days' => 10,
+                'late_fee_amount' => 20.00,
+                'payment_instructions' => 'Family discount applies to 2nd child and beyond',
+                'accepted_payment_methods' => ['bank_transfer', 'credit_card', 'debit_card', 'online_payment'],
+                'terms_and_conditions' => 'Family discount requires minimum 2 children enrolled simultaneously',
+                'metadata' => [
+                    'discount_type' => 'family',
+                    'min_children' => 2,
+                    'max_discount_children' => 5,
+                ],
+            ],
+            [
+                'name' => 'Student Financial Aid',
+                'description' => 'Reduced rate payment plan for qualifying families',
+                'type' => 'monthly',
+                'amount' => 75.00, // 50% of standard rate
+                'currency' => 'USD',
+                'installments' => 12,
+                'frequency' => 'monthly',
+                'due_day' => 1,
+                'curriculum_id' => null,
+                'is_active' => true,
+                'is_default' => false,
+                'auto_generate_invoices' => true,
+                'discount_percentage' => 50.00,
+                'grace_period_days' => 14,
+                'late_fee_amount' => 10.00,
+                'payment_instructions' => 'Financial aid payment plan - income verification required',
+                'accepted_payment_methods' => ['bank_transfer', 'cash', 'check'],
+                'terms_and_conditions' => 'Financial aid requires annual income verification and application approval',
+                'metadata' => [
+                    'aid_type' => 'need_based',
+                    'requires_application' => true,
+                    'renewal_required' => 'annually',
+                ],
+            ],
+        ];
+
+        foreach ($promotionalPlans as $planData) {
+            PaymentPlan::create($planData);
         }
     }
 }

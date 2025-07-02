@@ -60,6 +60,24 @@ new #[Title('Academic Years Management')] class extends Component {
         }
     }
 
+    // Redirect to create page
+    public function redirectToCreate(): void
+    {
+        $this->redirect(route('admin.academic-years.create'));
+    }
+
+    // Redirect to show page
+    public function redirectToShow(int $academicYearId): void
+    {
+        $this->redirect(route('admin.academic-years.show', $academicYearId));
+    }
+
+    // Redirect to edit page
+    public function redirectToEdit(int $academicYearId): void
+    {
+        $this->redirect(route('admin.academic-years.edit', $academicYearId));
+    }
+
     // Confirm deletion
     public function confirmDelete(int $academicYearId): void
     {
@@ -127,6 +145,9 @@ new #[Title('Academic Years Management')] class extends Component {
 
                     // Show toast notification
                     $this->success("Academic year {$academicYearDetails['name']} has been successfully deleted.");
+
+                    // Refresh the page data after successful deletion
+                    $this->resetPage();
                 } catch (\Exception $e) {
                     DB::rollBack();
                     $this->error("An error occurred during deletion: {$e->getMessage()}");
@@ -236,7 +257,7 @@ new #[Title('Academic Years Management')] class extends Component {
             <x-button
                 label="New Academic Year"
                 icon="o-plus"
-                link="{{ route('admin.academic-years.create') }}"
+                wire:click="redirectToCreate"
                 class="btn-primary"
                 responsive />
         </x-slot:actions>
@@ -295,78 +316,110 @@ new #[Title('Academic Years Management')] class extends Component {
                 <tbody>
                     @forelse ($academicYears as $academicYear)
                         <tr class="hover">
-                            <td>{{ $academicYear->id }}</td>
+                            <td class="font-mono text-sm">#{{ $academicYear->id }}</td>
                             <td>
                                 <div class="font-bold">{{ $academicYear->name }}</div>
-                            </td>
-                            <td>
-                                {{ $academicYear->start_date->format('M d, Y') }}
-                            </td>
-                            <td>
-                                {{ $academicYear->end_date->format('M d, Y') }}
-                            </td>
-                            <td>
-                                @if ($academicYear->is_current)
-                                    <x-badge label="Current" icon="o-check-circle" color="success" />
-                                @else
-                                    <x-badge label="Not Current" icon="o-clock" color="ghost" />
+                                @if($academicYear->description)
+                                    <div class="max-w-xs text-sm truncate opacity-70">
+                                        {{ Str::limit($academicYear->description, 60) }}
+                                    </div>
                                 @endif
                             </td>
                             <td>
-                                <div class="flex gap-2">
-                                    <div class="tooltip" data-tip="Program Enrollments">
-                                        <x-badge label="{{ $academicYear->program_enrollments_count }}" icon="o-user-group" />
-                                    </div>
-                                    <div class="tooltip" data-tip="Exams">
-                                        <x-badge label="{{ $academicYear->exams_count }}" icon="o-clipboard-document-check" />
-                                    </div>
+                                <div class="font-medium">{{ $academicYear->start_date->format('M d, Y') }}</div>
+                                <div class="text-xs text-gray-500">{{ $academicYear->start_date->format('D') }}</div>
+                            </td>
+                            <td>
+                                <div class="font-medium">{{ $academicYear->end_date->format('M d, Y') }}</div>
+                                <div class="text-xs text-gray-500">{{ $academicYear->end_date->format('D') }}</div>
+                            </td>
+                            <td class="py-2">
+                                @if ($academicYear->is_current)
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                        ✅ Current
+                                    </span>
+                                @else
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                                        ⏳ Not Current
+                                    </span>
+                                @endif
+                            </td>
+                            <td>
+                                <div class="flex gap-1">
+                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800" title="Program Enrollments">
+                                        👥 {{ $academicYear->program_enrollments_count ?? 0 }}
+                                    </span>
+                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800" title="Exams">
+                                        📝 {{ $academicYear->exams_count ?? 0 }}
+                                    </span>
                                 </div>
                             </td>
                             <td class="text-right">
                                 <div class="flex justify-end gap-2">
                                     @if (!$academicYear->is_current)
-                                        <x-button
-                                            icon="o-star"
+                                        <button
                                             wire:click="setAsCurrent({{ $academicYear->id }})"
-                                            color="success"
-                                            size="sm"
-                                            tooltip="Set as Current"
-                                        />
+                                            class="p-2 text-green-600 bg-green-100 rounded-md hover:text-green-900 hover:bg-green-200"
+                                            title="Set as Current"
+                                        >
+                                            ⭐
+                                        </button>
                                     @endif
 
-                                    <x-button
-                                        icon="o-eye"
-                                        link="{{ route('admin.academic-years.show', $academicYear->id) }}"
-                                        color="secondary"
-                                        size="sm"
-                                        tooltip="View"
-                                    />
-
-                                    <x-button
-                                        icon="o-pencil"
-                                        link="{{ route('admin.academic-years.edit', $academicYear->id) }}"
-                                        color="info"
-                                        size="sm"
-                                        tooltip="Edit"
-                                    />
-
-                                    <x-button
-                                        icon="o-trash"
+                                    <button
+                                        wire:click="redirectToShow({{ $academicYear->id }})"
+                                        class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
+                                        title="View"
+                                    >
+                                        👁️
+                                    </button>
+                                    <button
+                                        wire:click="redirectToEdit({{ $academicYear->id }})"
+                                        class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
+                                        title="Edit"
+                                    >
+                                        ✏️
+                                    </button>
+                                    <button
                                         wire:click="confirmDelete({{ $academicYear->id }})"
-                                        color="error"
-                                        size="sm"
-                                        tooltip="Delete"
-                                    />
+                                        class="p-2 text-red-600 bg-red-100 rounded-md hover:text-red-900 hover:bg-red-200"
+                                        title="Delete"
+                                    >
+                                        🗑️
+                                    </button>
                                 </div>
                             </td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" class="py-8 text-center">
-                                <div class="flex flex-col items-center justify-center gap-2">
-                                    <x-icon name="o-face-frown" class="w-16 h-16 text-gray-400" />
-                                    <h3 class="text-lg font-semibold text-gray-600">No academic years found</h3>
-                                    <p class="text-gray-500">Try modifying your filters or create a new academic year</p>
+                            <td colspan="7" class="py-12 text-center">
+                                <div class="flex flex-col items-center justify-center gap-4">
+                                    <x-icon name="o-academic-cap" class="w-20 h-20 text-gray-300" />
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-600">No academic years found</h3>
+                                        <p class="text-gray-500 mt-1">
+                                            @if($search || $status)
+                                                No academic years match your current filters.
+                                            @else
+                                                Get started by creating your first academic year.
+                                            @endif
+                                        </p>
+                                    </div>
+                                    @if($search || $status)
+                                        <x-button
+                                            label="Clear Filters"
+                                            wire:click="resetFilters"
+                                            color="secondary"
+                                            size="sm"
+                                        />
+                                    @else
+                                        <x-button
+                                            label="Create First Academic Year"
+                                            icon="o-plus"
+                                            wire:click="redirectToCreate"
+                                            color="primary"
+                                        />
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -379,6 +432,17 @@ new #[Title('Academic Years Management')] class extends Component {
         <div class="mt-4">
             {{ $academicYears->links() }}
         </div>
+
+        <!-- Results summary -->
+        @if($academicYears->count() > 0)
+        <div class="mt-4 text-sm text-gray-600 border-t pt-3">
+            Showing {{ $academicYears->firstItem() ?? 0 }} to {{ $academicYears->lastItem() ?? 0 }}
+            of {{ $academicYears->total() }} academic years
+            @if($search || $status)
+                (filtered from total)
+            @endif
+        </div>
+        @endif
     </x-card>
 
     <!-- Delete confirmation modal -->
@@ -419,9 +483,11 @@ new #[Title('Academic Years Management')] class extends Component {
                     label="Filter by status"
                     placeholder="All statuses"
                     :options="[
-                        '1' => 'Current',
-                        '0' => 'Not Current'
+                        ['id' => '1', 'name' => 'Current'],
+                        ['id' => '0', 'name' => 'Not Current']
                     ]"
+                    option-value="id"
+                    option-label="name"
                     wire:model.live="status"
                 />
             </div>
@@ -429,7 +495,14 @@ new #[Title('Academic Years Management')] class extends Component {
             <div>
                 <x-select
                     label="Items per page"
-                    :options="[10, 25, 50, 100]"
+                    :options="[
+                        ['id' => 10, 'name' => '10 per page'],
+                        ['id' => 25, 'name' => '25 per page'],
+                        ['id' => 50, 'name' => '50 per page'],
+                        ['id' => 100, 'name' => '100 per page']
+                    ]"
+                    option-value="id"
+                    option-label="name"
                     wire:model.live="perPage"
                 />
             </div>
