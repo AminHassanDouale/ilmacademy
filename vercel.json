@@ -1,8 +1,9 @@
 {
   "version": 2,
+  "outputDirectory": "public",
   "builds": [
     {
-      "src": "public/index.php",
+      "src": "composer.json",
       "use": "vercel-php@0.6.0"
     }
   ],
@@ -15,10 +16,5 @@
       "src": "/(.*)",
       "dest": "/public/index.php"
     }
-  ],
-  "functions": {
-    "public/index.php": {
-      "runtime": "vercel-php@0.6.0"
-    }
-  }
+  ]
 }
