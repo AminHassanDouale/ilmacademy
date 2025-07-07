@@ -385,14 +385,7 @@ new #[Title('Edit Teacher Profile')] class extends Component {
 <div>
     <!-- Page header -->
     <x-header title="Edit Teacher Profile" separator>
-        <x-slot:actions>
-            <x-button
-                label="View Profile"
-                icon="o-eye"
-                link="{{ route('teacher.profile.show') }}"
-                class="btn-ghost"
-            />
-        </x-slot:actions>
+
     </x-header>
 
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">

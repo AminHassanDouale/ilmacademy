@@ -6,8 +6,8 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ isset($title) ? $title.' - '.config('app.name') : config('app.name') }}</title>
 
-    <link rel="shortcut icon" type="image/x-icon" href="{{ asset('/favicon.ico') }}">
-    <link rel="mask-icon" href="{{ asset('/favicon.ico') }}" color="#ff2d20">
+    <link rel="shortcut icon" type="image/x-icon" href="{{ asset('favicon.ico') }}">
+    <link rel="mask-icon" href="{{ asset('favicon.ico') }}" color="#ff2d20">
 
     <!-- Add Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -97,7 +97,7 @@
     <header class="fixed z-10 w-full bg-base-50/50 dark:bg-base-950/50 backdrop-blur-xl">
         <nav class="container relative flex flex-wrap items-center justify-start gap-4 px-4 mx-auto border-b h-14 border-base lg:gap-8">
             <a href="/">
-                <img src="/images/logo-mark.png" alt="Logo" class="w-auto h-10 hover:animate-spin dark:invert">
+                <img src="{{ asset('images/logo-mark.png') }}" alt="Logo" class="w-auto h-10 hover:animate-spin dark:invert">
             </a>
 
             <div id="mobile-menu" class="hidden md:block md:w-auto">
@@ -193,19 +193,19 @@
                 </div>
 
                 <div>
-<img src="/images/tablet-mockup.png" alt="Islamic Learning Platform Screenshot" class="w-full h-auto">
+                    <img src="{{ asset('images/tablet-mockup.png') }}" alt="Islamic Learning Platform Screenshot" class="w-full h-auto">
                 </div>
 
                 <div class="text-sm">Trusted by Islamic Schools and Organizations Worldwide</div>
 
                 <!-- Brand Logos -->
                 <div class="flex flex-wrap items-center justify-center w-full gap-px">
-                    <img src="/images/logoipsum-288.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
-                    <img src="/images/logoipsum-317.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
-                    <img src="/images/logoipsum-321.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
-                    <img src="/images/logoipsum-323.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
-                    <img src="/images/logoipsum-330.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
-                    <img src="/images/logoipsum-331.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
+                    <img src="{{ asset('images/logoipsum-288.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
+                    <img src="{{ asset('images/logoipsum-317.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
+                    <img src="{{ asset('images/logoipsum-321.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
+                    <img src="{{ asset('images/logoipsum-323.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
+                    <img src="{{ asset('images/logoipsum-330.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
+                    <img src="{{ asset('images/logoipsum-331.svg') }}" alt="Partner Logo" class="m-4 h-7 filter grayscale opacity-70 hover:opacity-100 hover:filter-none md:m-8">
                 </div>
             </div>
         </div>
@@ -279,7 +279,7 @@
                     </div>
                     <h3 class="mb-2 text-lg font-semibold">Certificates & Recognition</h3>
                     <p class="text-base-600 dark:text-base-400">Earn certificates for completed levels, programs, and achievements to celebrate your Islamic learning journey.</p>
-                </div>
+                    </div>
             </div>
         </div>
     </section>
@@ -334,7 +334,7 @@
                 <!-- Image Section -->
                 <div class="relative flex items-center group isolate">
                     <div class="absolute w-3/4 duration-200 ease-in-out -translate-x-1/2 -translate-y-1/2 rounded-full left-1/2 top-1/2 group-hover:w-2/3 aspect-square bg-base-200 dark:bg-base-800"></div>
-                     <img src="images/phone-mockup.png" alt="Quran Learning Interface" class="object-contain w-full duration-300 ease-in-out aspect-square rotate-6 hover:rotate-0">
+                     <img src="{{ asset('images/phone-mockup.png') }}" alt="Quran Learning Interface" class="object-contain w-full duration-300 ease-in-out aspect-square rotate-6 hover:rotate-0">
                 </div>
             </div>
         </div>
@@ -347,7 +347,7 @@
                 <!-- Image Section (Ordered First on MD Screens) -->
                 <div class="relative flex items-center group isolate md:order-first">
                     <div class="absolute w-3/4 duration-200 ease-in-out -translate-x-1/2 -translate-y-1/2 rounded-full left-1/2 top-1/2 group-hover:w-2/3 aspect-square bg-base-200 dark:bg-base-800"></div>
-                     <img src="images/phone-mockup.png" alt="Hadith Studies Interface" class="object-contain w-full duration-300 ease-in-out aspect-square -rotate-6 hover:rotate-0">
+                     <img src="{{ asset('images/phone-mockup.png') }}" alt="Hadith Studies Interface" class="object-contain w-full duration-300 ease-in-out aspect-square -rotate-6 hover:rotate-0">
                 </div>
 
                 <div class="py-10">
@@ -459,45 +459,6 @@
                             <span class="text-primary">✓</span>
                             <span>Community forum access</span>
                         </li>
-                    </ul>
-                    <div class="mt-auto">
-                        <a href="#" class="inline-flex items-center justify-center w-full gap-2 px-4 py-2 font-medium transition-colors duration-300 rounded-md bg-base-50 text-base-950 hover:bg-base-200 dark:bg-base-800 dark:text-base-50 dark:hover:bg-base-700">
-                            Get started
-                            <i class="ti ti-arrow-right"></i>
-                        </a>
-                    </div>
-                </div>
-
-                <!-- Standard Plan -->
-                <div class="flex flex-col h-full p-6 transition-all duration-300 ease-in-out bg-white dark:bg-base-950 rounded-2xl hover:shadow-lg">
-                    <div class="mb-4">
-                        <h3 class="text-2xl font-semibold">Standard</h3>
-                        <p class="text-base-600 dark:text-base-400">For dedicated learners</p>
-                    </div>
-                    <div class="mb-6">
-                        <div class="flex items-end gap-1">
-                            <span class="text-4xl font-bold monthly-price">$39</span>
-                            <span class="hidden text-4xl font-bold yearly-price">$33</span>
-                            <span class="mb-1 text-base-600 dark:text-base-400">per month</span>
-                        </div>
-                    </div>
-                    <ul class="flex-grow mb-6 space-y-3">
-                        <li class="flex items-center gap-2">
-                            <span class="text-primary">✓</span>
-                            <span>All Basic plan features</span>
-                        </li>
-                        <li class="flex items-center gap-2">
-                            <span class="text-primary">✓</span>
-                            <span>Weekly group sessions</span>
-                        </li>
-                        <li class="flex items-center gap-2">
-                            <span class="text-primary">✓</span>
-                            <span>Detailed feedback reports</span>
-                        </li>
-                        <li class="flex items-center gap-2">
-                            <span class="text-primary">✓</span>
-                            <span>Advanced learning materials</span>
-                            </li>
                     </ul>
                     <div class="mt-auto">
                         <a href="#" class="inline-flex items-center justify-center w-full gap-2 px-4 py-2 font-medium text-white transition-colors duration-300 rounded-md bg-primary hover:bg-primary/80">
@@ -729,13 +690,13 @@
     <footer class="pt-6 bg-base-100 dark:bg-base-900" id="footer">
         <div class="container px-4 mx-auto">
             <div class="flex flex-col items-center justify-between gap-4 py-6 md:flex-row">
-                 <img src="images/logo.png" alt="Islamic Learning Platform Logo" class="w-auto h-10 opacity-70 hover:opacity-100 dark:invert">
+                 <img src="{{ asset('images/logo.png') }}" alt="Islamic Learning Platform Logo" class="w-auto h-10 opacity-70 hover:opacity-100 dark:invert">
 
                 <div class="flex flex-row gap-4 text-sm">
                   <a href="{{ route('privacy') }}">Privacy Policy</a>
-<a href="{{ route('terms') }}">Terms of Service</a>
-<a href="{{ route('about') }}">About Us</a>
-<a href="{{ route('contact') }}">Contact</a>
+                  <a href="{{ route('terms') }}">Terms of Service</a>
+                  <a href="{{ route('about') }}">About Us</a>
+                  <a href="{{ route('contact') }}">Contact</a>
                 </div>
 
                 <div class="inline-flex items-center gap-2">
@@ -862,4 +823,5 @@
             faqContents[0].classList.add('max-h-96', 'opacity-100');
         });
     </script>
-</div>
+</body>
+</html>

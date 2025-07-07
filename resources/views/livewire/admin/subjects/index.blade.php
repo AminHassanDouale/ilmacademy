@@ -278,88 +278,74 @@ new #[Title('Subjects Management')] class extends Component {
 
     <!-- Subjects table -->
     <x-card>
-        <div class="overflow-x-auto">
-            <table class="table w-full table-zebra">
-                <thead>
-                    <tr>
-                        <th class="cursor-pointer" wire:click="sortBy('id')">
-                            <div class="flex items-center">
-                                ID
-                                @if ($sortBy['column'] === 'id')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
+        <!-- Mobile/Tablet Card View (hidden on desktop) -->
+        <div class="block lg:hidden">
+            <div class="space-y-4">
+                @forelse ($subjects as $subject)
+                    <div class="p-4 transition-colors border rounded-lg bg-base-50 hover:bg-base-100">
+                        <!-- Subject Header -->
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="flex-1 min-w-0">
+                                <h3 class="text-lg font-semibold truncate">{{ $subject->name }}</h3>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <span class="font-mono text-sm text-gray-500">#{{ $subject->id }}</span>
+                                    @if(!empty($subject->code))
+                                        <span class="inline-flex items-center px-2 py-1 font-mono text-xs font-medium text-blue-800 bg-blue-100 rounded-full">
+                                            {{ $subject->code }}
+                                        </span>
+                                    @endif
+                                </div>
                             </div>
-                        </th>
-                        <th class="cursor-pointer" wire:click="sortBy('name')">
-                            <div class="flex items-center">
-                                Name
-                                @if ($sortBy['column'] === 'name')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
+                            <!-- Actions -->
+                            <div class="flex gap-1 ml-2">
+                                <button
+                                    wire:click="redirectToShow({{ $subject->id }})"
+                                    class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
+                                    title="View"
+                                >
+                                    👁️
+                                </button>
+                                <button
+                                    wire:click="redirectToEdit({{ $subject->id }})"
+                                    class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
+                                    title="Edit"
+                                >
+                                    ✏️
+                                </button>
+                                <button
+                                    wire:click="confirmDelete({{ $subject->id }})"
+                                    class="p-2 text-red-600 bg-red-100 rounded-md hover:text-red-900 hover:bg-red-200"
+                                    title="Delete"
+                                >
+                                    🗑️
+                                </button>
                             </div>
-                        </th>
-                        <th class="cursor-pointer" wire:click="sortBy('code')">
-                            <div class="flex items-center">
-                                Code
-                                @if ($sortBy['column'] === 'code')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th class="cursor-pointer" wire:click="sortBy('curriculum')">
-                            <div class="flex items-center">
-                                Curriculum
-                                @if ($sortBy['column'] === 'curriculum')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th class="cursor-pointer" wire:click="sortBy('level')">
-                            <div class="flex items-center">
-                                Level
-                                @if ($sortBy['column'] === 'level')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th>Stats</th>
-                        <th class="text-right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse ($subjects as $subject)
-                        <tr class="hover">
-                            <td class="font-mono text-sm">#{{ $subject->id }}</td>
-                            <td>
-                                <div class="font-bold">{{ $subject->name }}</div>
-                                @if($subject->description)
-                                    <div class="max-w-xs text-sm truncate opacity-70">
-                                        {{ Str::limit($subject->description, 60) }}
-                                    </div>
-                                @endif
-                            </td>
-                            <td class="py-2">
-                                @if(!empty($subject->code))
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 font-mono">
-                                        {{ $subject->code }}
-                                    </span>
-                                @else
-                                    <span class="text-xs italic text-gray-400">No code</span>
-                                @endif
-                            </td>
-                            <td>
+                        </div>
+
+                        <!-- Description -->
+                        @if($subject->description)
+                            <p class="mb-3 text-sm text-gray-600 line-clamp-2">
+                                {{ Str::limit($subject->description, 100) }}
+                            </p>
+                        @endif
+
+                        <!-- Curriculum and Level -->
+                        <div class="grid grid-cols-1 gap-3 mb-3 sm:grid-cols-2">
+                            <div>
+                                <label class="block mb-1 text-xs font-medium tracking-wide text-gray-500 uppercase">Curriculum</label>
                                 @if($subject->curriculum)
-                                    <a href="{{ route('admin.curricula.show', $subject->curriculum_id) }}" class="text-blue-600 underline hover:text-blue-800">
+                                    <a href="{{ route('admin.curricula.show', $subject->curriculum_id) }}" class="text-sm text-blue-600 underline hover:text-blue-800">
                                         {{ $subject->curriculum->name }}
                                     </a>
                                     @if($subject->curriculum->code)
                                         <div class="text-xs text-gray-500">{{ $subject->curriculum->code }}</div>
                                     @endif
                                 @else
-                                    <span class="italic text-gray-400">Unknown curriculum</span>
+                                    <span class="text-sm italic text-gray-400">Unknown curriculum</span>
                                 @endif
-                            </td>
-                            <td class="py-2">
+                            </div>
+                            <div>
+                                <label class="block mb-1 text-xs font-medium tracking-wide text-gray-500 uppercase">Level</label>
                                 @if(!empty($subject->level))
                                     <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium {{ $this->getLevelColor($subject->level) }}">
                                         {{ $subject->level }}
@@ -367,82 +353,225 @@ new #[Title('Subjects Management')] class extends Component {
                                 @else
                                     <span class="text-xs italic text-gray-400">No level</span>
                                 @endif
-                            </td>
-                            <td>
-                                <div class="flex gap-1">
-                                    <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-indigo-800 bg-indigo-100 rounded-full" title="Sessions">
-                                        📅 {{ $subject->sessions_count ?? 0 }}
-                                    </span>
-                                    <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-orange-800 bg-orange-100 rounded-full" title="Exams">
-                                        📝 {{ $subject->exams_count ?? 0 }}
-                                    </span>
-                                    <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-purple-800 bg-purple-100 rounded-full" title="Enrollments">
-                                        👥 {{ $subject->subject_enrollments_count ?? 0 }}
-                                    </span>
-                                </div>
-                            </td>
-                            <td class="text-right">
-                                <div class="flex justify-end gap-2">
-                                    <button
-                                        wire:click="redirectToShow({{ $subject->id }})"
-                                        class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
-                                        title="View"
-                                    >
-                                        👁️
-                                    </button>
-                                    <button
-                                        wire:click="redirectToEdit({{ $subject->id }})"
-                                        class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
-                                        title="Edit"
-                                    >
-                                        ✏️
-                                    </button>
-                                    <button
-                                        wire:click="confirmDelete({{ $subject->id }})"
-                                        class="p-2 text-red-600 bg-red-100 rounded-md hover:text-red-900 hover:bg-red-200"
-                                        title="Delete"
-                                    >
-                                        🗑️
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="7" class="py-12 text-center">
-                                <div class="flex flex-col items-center justify-center gap-4">
-                                    <x-icon name="o-academic-cap" class="w-20 h-20 text-gray-300" />
-                                    <div>
-                                        <h3 class="text-lg font-semibold text-gray-600">No subjects found</h3>
-                                        <p class="mt-1 text-gray-500">
-                                            @if($search || $curriculum || $level)
-                                                No subjects match your current filters.
-                                            @else
-                                                Get started by creating your first subject.
-                                            @endif
-                                        </p>
-                                    </div>
+                            </div>
+                        </div>
+
+                        <!-- Stats -->
+                        <div class="flex flex-wrap gap-2">
+                            <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-indigo-800 bg-indigo-100 rounded-full" title="Sessions">
+                                📅 {{ $subject->sessions_count ?? 0 }}
+                            </span>
+                            <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-orange-800 bg-orange-100 rounded-full" title="Exams">
+                                📝 {{ $subject->exams_count ?? 0 }}
+                            </span>
+                            <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-purple-800 bg-purple-100 rounded-full" title="Enrollments">
+                                👥 {{ $subject->subject_enrollments_count ?? 0 }}
+                            </span>
+                        </div>
+                    </div>
+                @empty
+                    <div class="py-12 text-center">
+                        <div class="flex flex-col items-center justify-center gap-4">
+                            <x-icon name="o-academic-cap" class="w-16 h-16 text-gray-300" />
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-600">No subjects found</h3>
+                                <p class="mt-1 text-sm text-gray-500">
                                     @if($search || $curriculum || $level)
-                                        <x-button
-                                            label="Clear Filters"
-                                            wire:click="resetFilters"
-                                            color="secondary"
-                                            size="sm"
-                                        />
+                                        No subjects match your current filters.
                                     @else
-                                        <x-button
-                                            label="Create First Subject"
-                                            icon="o-plus"
-                                            wire:click="redirectToCreate"
-                                            color="primary"
-                                        />
+                                        Get started by creating your first subject.
+                                    @endif
+                                </p>
+                            </div>
+                            @if($search || $curriculum || $level)
+                                <x-button
+                                    label="Clear Filters"
+                                    wire:click="resetFilters"
+                                    color="secondary"
+                                    size="sm"
+                                />
+                            @else
+                                <x-button
+                                    label="Create First Subject"
+                                    icon="o-plus"
+                                    wire:click="redirectToCreate"
+                                    color="primary"
+                                />
+                            @endif
+                        </div>
+                    </div>
+                @endforelse
+            </div>
+        </div>
+
+        <!-- Desktop Table View (hidden on mobile/tablet) -->
+        <div class="hidden lg:block">
+            <div class="overflow-x-auto">
+                <table class="table w-full table-zebra">
+                    <thead>
+                        <tr>
+                            <th class="cursor-pointer" wire:click="sortBy('id')">
+                                <div class="flex items-center">
+                                    ID
+                                    @if ($sortBy['column'] === 'id')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
                                     @endif
                                 </div>
-                            </td>
+                            </th>
+                            <th class="cursor-pointer" wire:click="sortBy('name')">
+                                <div class="flex items-center">
+                                    Name
+                                    @if ($sortBy['column'] === 'name')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
+                                    @endif
+                                </div>
+                            </th>
+                            <th class="cursor-pointer" wire:click="sortBy('code')">
+                                <div class="flex items-center">
+                                    Code
+                                    @if ($sortBy['column'] === 'code')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
+                                    @endif
+                                </div>
+                            </th>
+                            <th class="cursor-pointer" wire:click="sortBy('curriculum')">
+                                <div class="flex items-center">
+                                    Curriculum
+                                    @if ($sortBy['column'] === 'curriculum')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
+                                    @endif
+                                </div>
+                            </th>
+                            <th class="cursor-pointer" wire:click="sortBy('level')">
+                                <div class="flex items-center">
+                                    Level
+                                    @if ($sortBy['column'] === 'level')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
+                                    @endif
+                                </div>
+                            </th>
+                            <th>Stats</th>
+                            <th class="text-right">Actions</th>
                         </tr>
-                    @endforelse
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        @forelse ($subjects as $subject)
+                            <tr class="hover">
+                                <td class="font-mono text-sm">#{{ $subject->id }}</td>
+                                <td>
+                                    <div class="font-bold">{{ $subject->name }}</div>
+                                    @if($subject->description)
+                                        <div class="max-w-xs text-sm truncate opacity-70">
+                                            {{ Str::limit($subject->description, 60) }}
+                                        </div>
+                                    @endif
+                                </td>
+                                <td class="py-2">
+                                    @if(!empty($subject->code))
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 font-mono">
+                                            {{ $subject->code }}
+                                        </span>
+                                    @else
+                                        <span class="text-xs italic text-gray-400">No code</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if($subject->curriculum)
+                                        <a href="{{ route('admin.curricula.show', $subject->curriculum_id) }}" class="text-blue-600 underline hover:text-blue-800">
+                                            {{ $subject->curriculum->name }}
+                                        </a>
+                                        @if($subject->curriculum->code)
+                                            <div class="text-xs text-gray-500">{{ $subject->curriculum->code }}</div>
+                                        @endif
+                                    @else
+                                        <span class="italic text-gray-400">Unknown curriculum</span>
+                                    @endif
+                                </td>
+                                <td class="py-2">
+                                    @if(!empty($subject->level))
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium {{ $this->getLevelColor($subject->level) }}">
+                                            {{ $subject->level }}
+                                        </span>
+                                    @else
+                                        <span class="text-xs italic text-gray-400">No level</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    <div class="flex gap-1">
+                                        <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-indigo-800 bg-indigo-100 rounded-full" title="Sessions">
+                                            📅 {{ $subject->sessions_count ?? 0 }}
+                                        </span>
+                                        <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-orange-800 bg-orange-100 rounded-full" title="Exams">
+                                            📝 {{ $subject->exams_count ?? 0 }}
+                                        </span>
+                                        <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-purple-800 bg-purple-100 rounded-full" title="Enrollments">
+                                            👥 {{ $subject->subject_enrollments_count ?? 0 }}
+                                        </span>
+                                    </div>
+                                </td>
+                                <td class="text-right">
+                                    <div class="flex justify-end gap-2">
+                                        <button
+                                            wire:click="redirectToShow({{ $subject->id }})"
+                                            class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
+                                            title="View"
+                                        >
+                                            👁️
+                                        </button>
+                                        <button
+                                            wire:click="redirectToEdit({{ $subject->id }})"
+                                            class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
+                                            title="Edit"
+                                        >
+                                            ✏️
+                                        </button>
+                                        <button
+                                            wire:click="confirmDelete({{ $subject->id }})"
+                                            class="p-2 text-red-600 bg-red-100 rounded-md hover:text-red-900 hover:bg-red-200"
+                                            title="Delete"
+                                        >
+                                            🗑️
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="7" class="py-12 text-center">
+                                    <div class="flex flex-col items-center justify-center gap-4">
+                                        <x-icon name="o-academic-cap" class="w-20 h-20 text-gray-300" />
+                                        <div>
+                                            <h3 class="text-lg font-semibold text-gray-600">No subjects found</h3>
+                                            <p class="mt-1 text-gray-500">
+                                                @if($search || $curriculum || $level)
+                                                    No subjects match your current filters.
+                                                @else
+                                                    Get started by creating your first subject.
+                                                @endif
+                                            </p>
+                                        </div>
+                                        @if($search || $curriculum || $level)
+                                            <x-button
+                                                label="Clear Filters"
+                                                wire:click="resetFilters"
+                                                color="secondary"
+                                                size="sm"
+                                            />
+                                        @else
+                                            <x-button
+                                                label="Create First Subject"
+                                                icon="o-plus"
+                                                wire:click="redirectToCreate"
+                                                color="primary"
+                                            />
+                                        @endif
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <!-- Pagination -->
@@ -453,11 +582,20 @@ new #[Title('Subjects Management')] class extends Component {
         <!-- Results summary -->
         @if($subjects->count() > 0)
         <div class="pt-3 mt-4 text-sm text-gray-600 border-t">
-            Showing {{ $subjects->firstItem() ?? 0 }} to {{ $subjects->lastItem() ?? 0 }}
-            of {{ $subjects->total() }} subjects
-            @if($search || $curriculum || $level)
-                (filtered from total)
-            @endif
+            <div class="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
+                <span>
+                    Showing {{ $subjects->firstItem() ?? 0 }} to {{ $subjects->lastItem() ?? 0 }}
+                    of {{ $subjects->total() }} subjects
+                    @if($search || $curriculum || $level)
+                        (filtered from total)
+                    @endif
+                </span>
+                <!-- Mobile view toggle (optional) -->
+                <div class="flex items-center gap-2 lg:hidden">
+                    <span class="text-xs text-gray-500">Card view active</span>
+                    <x-icon name="o-squares-2x2" class="w-4 h-4 text-gray-400" />
+                </div>
+            </div>
         </div>
         @endif
     </x-card>

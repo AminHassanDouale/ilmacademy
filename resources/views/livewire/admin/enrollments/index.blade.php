@@ -267,171 +267,319 @@ new #[Title('Subject Enrollments Management')] class extends Component {
 
     <!-- Enrollments table -->
     <x-card>
-        <div class="overflow-x-auto">
-            <table class="table w-full table-zebra">
-                <thead>
-                    <tr>
-                        <th class="cursor-pointer" wire:click="sortBy('id')">
-                            <div class="flex items-center">
-                                ID
-                                @if ($sortBy['column'] === 'id')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th class="cursor-pointer" wire:click="sortBy('student')">
-                            <div class="flex items-center">
-                                Student
-                                @if ($sortBy['column'] === 'student')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th class="cursor-pointer" wire:click="sortBy('subject')">
-                            <div class="flex items-center">
-                                Subject
-                                @if ($sortBy['column'] === 'subject')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th>Curriculum</th>
-                        <th>Academic Year</th>
-                        <th class="cursor-pointer" wire:click="sortBy('created_at')">
-                            <div class="flex items-center">
-                                Enrolled Date
-                                @if ($sortBy['column'] === 'created_at')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th class="text-right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse ($enrollments as $enrollment)
-                        <tr class="hover">
-                            <td class="font-mono text-sm">#{{ $enrollment->id }}</td>
-                            <td>
-                                <div class="flex items-center space-x-3">
-                                    <div class="avatar">
-                                        <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-                                            <span class="text-blue-600 font-medium text-sm">
-                                                {{ $enrollment->programEnrollment->childProfile->initials ?? 'U' }}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="font-medium">{{ $enrollment->programEnrollment->childProfile->full_name ?? 'Unknown Student' }}</div>
-                                        <div class="text-sm text-gray-500">{{ $enrollment->programEnrollment->childProfile->email ?? 'No email' }}</div>
+        <!-- Mobile/Tablet Card View (hidden on desktop) -->
+        <div class="block lg:hidden">
+            <div class="space-y-4">
+                @forelse ($enrollments as $enrollment)
+                    <div class="p-4 transition-colors border rounded-lg bg-base-50 hover:bg-base-100">
+                        <!-- Student Header -->
+                        <div class="flex items-start justify-between mb-4">
+                            <div class="flex items-center flex-1 min-w-0 space-x-3">
+                                <div class="flex-shrink-0 avatar">
+                                    <div class="flex items-center justify-center w-12 h-12 bg-blue-100 rounded-full">
+                                        <span class="text-sm font-medium text-blue-600">
+                                            {{ $enrollment->programEnrollment->childProfile->initials ?? 'U' }}
+                                        </span>
                                     </div>
                                 </div>
-                            </td>
-                            <td>
-                                <div class="font-medium">{{ $enrollment->subject->name ?? 'Unknown Subject' }}</div>
-                                @if($enrollment->subject?->code)
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 font-mono">
-                                        {{ $enrollment->subject->code }}
-                                    </span>
-                                @endif
-                                @if($enrollment->subject?->level)
-                                    <div class="text-xs text-gray-500 mt-1">Level: {{ $enrollment->subject->level }}</div>
-                                @endif
-                            </td>
-                            <td>
-                                @if($enrollment->subject?->curriculum)
-                                    <a href="{{ route('admin.curricula.show', $enrollment->subject->curriculum->id) }}" class="text-blue-600 hover:text-blue-800 underline text-sm">
+                                <div class="flex-1 min-w-0">
+                                    <h3 class="text-lg font-semibold truncate">{{ $enrollment->programEnrollment->childProfile->full_name ?? 'Unknown Student' }}</h3>
+                                    <p class="text-sm text-gray-500 truncate">{{ $enrollment->programEnrollment->childProfile->email ?? 'No email' }}</p>
+                                    <div class="mt-1 font-mono text-xs text-gray-400">#{{ $enrollment->id }}</div>
+                                </div>
+                            </div>
+                            <!-- Actions -->
+                            <div class="flex gap-1 ml-2">
+                                <button
+                                    wire:click="redirectToShow({{ $enrollment->id }})"
+                                    class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
+                                    title="View"
+                                >
+                                    👁️
+                                </button>
+                                <button
+                                    wire:click="redirectToEdit({{ $enrollment->id }})"
+                                    class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
+                                    title="Edit"
+                                >
+                                    ✏️
+                                </button>
+                                <button
+                                    wire:click="confirmDelete({{ $enrollment->id }})"
+                                    class="p-2 text-red-600 bg-red-100 rounded-md hover:text-red-900 hover:bg-red-200"
+                                    title="Delete"
+                                >
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Subject Information -->
+                        <div class="p-3 mb-4 border border-blue-200 rounded-lg bg-blue-50">
+                            <div class="flex items-start justify-between mb-2">
+                                <div class="flex-1 min-w-0">
+                                    <h4 class="font-medium text-blue-900 truncate">{{ $enrollment->subject->name ?? 'Unknown Subject' }}</h4>
+                                    <div class="flex items-center gap-2 mt-1">
+                                        @if($enrollment->subject?->code)
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-800 text-white font-mono">
+                                                {{ $enrollment->subject->code }}
+                                            </span>
+                                        @endif
+                                        @if($enrollment->subject?->level)
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                                Level {{ $enrollment->subject->level }}
+                                            </span>
+                                        @endif
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Curriculum -->
+                            @if($enrollment->subject?->curriculum)
+                                <div class="text-sm">
+                                    <span class="text-gray-600">Curriculum: </span>
+                                    <a href="{{ route('admin.curricula.show', $enrollment->subject->curriculum->id) }}" class="text-blue-600 underline hover:text-blue-800">
                                         {{ $enrollment->subject->curriculum->name }}
                                     </a>
                                     @if($enrollment->subject->curriculum->code)
-                                        <div class="text-xs text-gray-500">{{ $enrollment->subject->curriculum->code }}</div>
+                                        <span class="ml-1 text-xs text-gray-500">({{ $enrollment->subject->curriculum->code }})</span>
                                     @endif
-                                @else
-                                    <span class="text-gray-400 italic text-sm">No curriculum</span>
-                                @endif
-                            </td>
-                            <td>
+                                </div>
+                            @else
+                                <div class="text-sm italic text-gray-400">No curriculum assigned</div>
+                            @endif
+                        </div>
+
+                        <!-- Academic Year & Enrollment Date -->
+                        <div class="grid grid-cols-1 gap-3 mb-3 sm:grid-cols-2">
+                            <div>
+                                <label class="block mb-1 text-xs font-medium tracking-wide text-gray-500 uppercase">Academic Year</label>
                                 @if($enrollment->programEnrollment?->academicYear)
-                                    <div class="font-medium">{{ $enrollment->programEnrollment->academicYear->name }}</div>
+                                    <div class="text-sm font-medium">{{ $enrollment->programEnrollment->academicYear->name }}</div>
                                     <div class="text-xs text-gray-500">
                                         {{ $enrollment->programEnrollment->academicYear->start_date->format('Y') }} -
                                         {{ $enrollment->programEnrollment->academicYear->end_date->format('Y') }}
                                     </div>
                                     @if($enrollment->programEnrollment->academicYear->is_current)
-                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mt-1">
-                                            Current
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mt-1">
+                                            ✅ Current
                                         </span>
                                     @endif
                                 @else
-                                    <span class="text-gray-400 italic text-sm">No academic year</span>
+                                    <span class="text-sm italic text-gray-400">No academic year</span>
                                 @endif
-                            </td>
-                            <td>
-                                <div class="font-medium">{{ $enrollment->created_at->format('M d, Y') }}</div>
+                            </div>
+                            <div>
+                                <label class="block mb-1 text-xs font-medium tracking-wide text-gray-500 uppercase">Enrolled Date</label>
+                                <div class="text-sm font-medium">{{ $enrollment->created_at->format('M d, Y') }}</div>
                                 <div class="text-xs text-gray-500">{{ $enrollment->created_at->format('h:i A') }}</div>
-                            </td>
-                            <td class="text-right">
-                                <div class="flex justify-end gap-2">
-                                    <button
-                                        wire:click="redirectToShow({{ $enrollment->id }})"
-                                        class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
-                                        title="View"
-                                    >
-                                        👁️
-                                    </button>
-                                    <button
-                                        wire:click="redirectToEdit({{ $enrollment->id }})"
-                                        class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
-                                        title="Edit"
-                                    >
-                                        ✏️
-                                    </button>
-                                    <button
-                                        wire:click="confirmDelete({{ $enrollment->id }})"
-                                        class="p-2 text-red-600 bg-red-100 rounded-md hover:text-red-900 hover:bg-red-200"
-                                        title="Delete"
-                                    >
-                                        🗑️
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="7" class="py-12 text-center">
-                                <div class="flex flex-col items-center justify-center gap-4">
-                                    <x-icon name="o-user-group" class="w-20 h-20 text-gray-300" />
-                                    <div>
-                                        <h3 class="text-lg font-semibold text-gray-600">No enrollments found</h3>
-                                        <p class="text-gray-500 mt-1">
-                                            @if($search || $subject || $academicYear || $status)
-                                                No enrollments match your current filters.
-                                            @else
-                                                Get started by creating your first enrollment.
-                                            @endif
-                                        </p>
-                                    </div>
+                                <div class="mt-1 text-xs text-gray-400">{{ $enrollment->created_at->diffForHumans() }}</div>
+                            </div>
+                        </div>
+                    </div>
+                @empty
+                    <div class="py-12 text-center">
+                        <div class="flex flex-col items-center justify-center gap-4">
+                            <x-icon name="o-user-group" class="w-16 h-16 text-gray-300" />
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-600">No enrollments found</h3>
+                                <p class="mt-1 text-sm text-gray-500">
                                     @if($search || $subject || $academicYear || $status)
-                                        <x-button
-                                            label="Clear Filters"
-                                            wire:click="resetFilters"
-                                            color="secondary"
-                                            size="sm"
-                                        />
+                                        No enrollments match your current filters.
                                     @else
-                                        <x-button
-                                            label="Create First Enrollment"
-                                            icon="o-plus"
-                                            wire:click="redirectToCreate"
-                                            color="primary"
-                                        />
+                                        Get started by creating your first enrollment.
+                                    @endif
+                                </p>
+                            </div>
+                            @if($search || $subject || $academicYear || $status)
+                                <x-button
+                                    label="Clear Filters"
+                                    wire:click="resetFilters"
+                                    color="secondary"
+                                    size="sm"
+                                />
+                            @else
+                                <x-button
+                                    label="Create First Enrollment"
+                                    icon="o-plus"
+                                    wire:click="redirectToCreate"
+                                    color="primary"
+                                />
+                            @endif
+                        </div>
+                    </div>
+                @endforelse
+            </div>
+        </div>
+
+        <!-- Desktop Table View (hidden on mobile/tablet) -->
+        <div class="hidden lg:block">
+            <div class="overflow-x-auto">
+                <table class="table w-full table-zebra">
+                    <thead>
+                        <tr>
+                            <th class="cursor-pointer" wire:click="sortBy('id')">
+                                <div class="flex items-center">
+                                    ID
+                                    @if ($sortBy['column'] === 'id')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
                                     @endif
                                 </div>
-                            </td>
+                            </th>
+                            <th class="cursor-pointer" wire:click="sortBy('student')">
+                                <div class="flex items-center">
+                                    Student
+                                    @if ($sortBy['column'] === 'student')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
+                                    @endif
+                                </div>
+                            </th>
+                            <th class="cursor-pointer" wire:click="sortBy('subject')">
+                                <div class="flex items-center">
+                                    Subject
+                                    @if ($sortBy['column'] === 'subject')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
+                                    @endif
+                                </div>
+                            </th>
+                            <th>Curriculum</th>
+                            <th>Academic Year</th>
+                            <th class="cursor-pointer" wire:click="sortBy('created_at')">
+                                <div class="flex items-center">
+                                    Enrolled Date
+                                    @if ($sortBy['column'] === 'created_at')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
+                                    @endif
+                                </div>
+                            </th>
+                            <th class="text-right">Actions</th>
                         </tr>
-                    @endforelse
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        @forelse ($enrollments as $enrollment)
+                            <tr class="hover">
+                                <td class="font-mono text-sm">#{{ $enrollment->id }}</td>
+                                <td>
+                                    <div class="flex items-center space-x-3">
+                                        <div class="avatar">
+                                            <div class="flex items-center justify-center w-10 h-10 bg-blue-100 rounded-full">
+                                                <span class="text-sm font-medium text-blue-600">
+                                                    {{ $enrollment->programEnrollment->childProfile->initials ?? 'U' }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div class="font-medium">{{ $enrollment->programEnrollment->childProfile->full_name ?? 'Unknown Student' }}</div>
+                                            <div class="text-sm text-gray-500">{{ $enrollment->programEnrollment->childProfile->email ?? 'No email' }}</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="font-medium">{{ $enrollment->subject->name ?? 'Unknown Subject' }}</div>
+                                    @if($enrollment->subject?->code)
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 font-mono">
+                                            {{ $enrollment->subject->code }}
+                                        </span>
+                                    @endif
+                                    @if($enrollment->subject?->level)
+                                        <div class="mt-1 text-xs text-gray-500">Level: {{ $enrollment->subject->level }}</div>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if($enrollment->subject?->curriculum)
+                                        <a href="{{ route('admin.curricula.show', $enrollment->subject->curriculum->id) }}" class="text-sm text-blue-600 underline hover:text-blue-800">
+                                            {{ $enrollment->subject->curriculum->name }}
+                                        </a>
+                                        @if($enrollment->subject->curriculum->code)
+                                            <div class="text-xs text-gray-500">{{ $enrollment->subject->curriculum->code }}</div>
+                                        @endif
+                                    @else
+                                        <span class="text-sm italic text-gray-400">No curriculum</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if($enrollment->programEnrollment?->academicYear)
+                                        <div class="font-medium">{{ $enrollment->programEnrollment->academicYear->name }}</div>
+                                        <div class="text-xs text-gray-500">
+                                            {{ $enrollment->programEnrollment->academicYear->start_date->format('Y') }} -
+                                            {{ $enrollment->programEnrollment->academicYear->end_date->format('Y') }}
+                                        </div>
+                                        @if($enrollment->programEnrollment->academicYear->is_current)
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mt-1">
+                                                Current
+                                            </span>
+                                        @endif
+                                    @else
+                                        <span class="text-sm italic text-gray-400">No academic year</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    <div class="font-medium">{{ $enrollment->created_at->format('M d, Y') }}</div>
+                                    <div class="text-xs text-gray-500">{{ $enrollment->created_at->format('h:i A') }}</div>
+                                </td>
+                                <td class="text-right">
+                                    <div class="flex justify-end gap-2">
+                                        <button
+                                            wire:click="redirectToShow({{ $enrollment->id }})"
+                                            class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
+                                            title="View"
+                                        >
+                                            👁️
+                                        </button>
+                                        <button
+                                            wire:click="redirectToEdit({{ $enrollment->id }})"
+                                            class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
+                                            title="Edit"
+                                        >
+                                            ✏️
+                                        </button>
+                                        <button
+                                            wire:click="confirmDelete({{ $enrollment->id }})"
+                                            class="p-2 text-red-600 bg-red-100 rounded-md hover:text-red-900 hover:bg-red-200"
+                                            title="Delete"
+                                        >
+                                            🗑️
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="7" class="py-12 text-center">
+                                    <div class="flex flex-col items-center justify-center gap-4">
+                                        <x-icon name="o-user-group" class="w-20 h-20 text-gray-300" />
+                                        <div>
+                                            <h3 class="text-lg font-semibold text-gray-600">No enrollments found</h3>
+                                            <p class="mt-1 text-gray-500">
+                                                @if($search || $subject || $academicYear || $status)
+                                                    No enrollments match your current filters.
+                                                @else
+                                                    Get started by creating your first enrollment.
+                                                @endif
+                                            </p>
+                                        </div>
+                                        @if($search || $subject || $academicYear || $status)
+                                            <x-button
+                                                label="Clear Filters"
+                                                wire:click="resetFilters"
+                                                color="secondary"
+                                                size="sm"
+                                            />
+                                        @else
+                                            <x-button
+                                                label="Create First Enrollment"
+                                                icon="o-plus"
+                                                wire:click="redirectToCreate"
+                                                color="primary"
+                                            />
+                                        @endif
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <!-- Pagination -->
@@ -441,12 +589,21 @@ new #[Title('Subject Enrollments Management')] class extends Component {
 
         <!-- Results summary -->
         @if($enrollments->count() > 0)
-        <div class="mt-4 text-sm text-gray-600 border-t pt-3">
-            Showing {{ $enrollments->firstItem() ?? 0 }} to {{ $enrollments->lastItem() ?? 0 }}
-            of {{ $enrollments->total() }} enrollments
-            @if($search || $subject || $academicYear || $status)
-                (filtered from total)
-            @endif
+        <div class="pt-3 mt-4 text-sm text-gray-600 border-t">
+            <div class="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
+                <span>
+                    Showing {{ $enrollments->firstItem() ?? 0 }} to {{ $enrollments->lastItem() ?? 0 }}
+                    of {{ $enrollments->total() }} enrollments
+                    @if($search || $subject || $academicYear || $status)
+                        (filtered from total)
+                    @endif
+                </span>
+                <!-- Mobile view indicator -->
+                <div class="flex items-center gap-2 lg:hidden">
+                    <span class="text-xs text-gray-500">Card view active</span>
+                    <x-icon name="o-user-group" class="w-4 h-4 text-gray-400" />
+                </div>
+            </div>
         </div>
         @endif
     </x-card>

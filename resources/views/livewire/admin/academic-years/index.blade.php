@@ -265,167 +265,300 @@ new #[Title('Academic Years Management')] class extends Component {
 
     <!-- Academic Years table -->
     <x-card>
-        <div class="overflow-x-auto">
-            <table class="table w-full table-zebra">
-                <thead>
-                    <tr>
-                        <th class="cursor-pointer" wire:click="sortBy('id')">
-                            <div class="flex items-center">
-                                ID
-                                @if ($sortBy['column'] === 'id')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th class="cursor-pointer" wire:click="sortBy('name')">
-                            <div class="flex items-center">
-                                Name
-                                @if ($sortBy['column'] === 'name')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th class="cursor-pointer" wire:click="sortBy('start_date')">
-                            <div class="flex items-center">
-                                Start Date
-                                @if ($sortBy['column'] === 'start_date')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th class="cursor-pointer" wire:click="sortBy('end_date')">
-                            <div class="flex items-center">
-                                End Date
-                                @if ($sortBy['column'] === 'end_date')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th class="cursor-pointer" wire:click="sortBy('is_current')">
-                            <div class="flex items-center">
-                                Status
-                                @if ($sortBy['column'] === 'is_current')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th>Stats</th>
-                        <th class="text-right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse ($academicYears as $academicYear)
-                        <tr class="hover">
-                            <td class="font-mono text-sm">#{{ $academicYear->id }}</td>
-                            <td>
-                                <div class="font-bold">{{ $academicYear->name }}</div>
-                                @if($academicYear->description)
-                                    <div class="max-w-xs text-sm truncate opacity-70">
-                                        {{ Str::limit($academicYear->description, 60) }}
-                                    </div>
-                                @endif
-                            </td>
-                            <td>
-                                <div class="font-medium">{{ $academicYear->start_date->format('M d, Y') }}</div>
-                                <div class="text-xs text-gray-500">{{ $academicYear->start_date->format('D') }}</div>
-                            </td>
-                            <td>
-                                <div class="font-medium">{{ $academicYear->end_date->format('M d, Y') }}</div>
-                                <div class="text-xs text-gray-500">{{ $academicYear->end_date->format('D') }}</div>
-                            </td>
-                            <td class="py-2">
-                                @if ($academicYear->is_current)
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                        ✅ Current
-                                    </span>
-                                @else
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-                                        ⏳ Not Current
-                                    </span>
-                                @endif
-                            </td>
-                            <td>
-                                <div class="flex gap-1">
-                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800" title="Program Enrollments">
-                                        👥 {{ $academicYear->program_enrollments_count ?? 0 }}
-                                    </span>
-                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800" title="Exams">
-                                        📝 {{ $academicYear->exams_count ?? 0 }}
-                                    </span>
-                                </div>
-                            </td>
-                            <td class="text-right">
-                                <div class="flex justify-end gap-2">
-                                    @if (!$academicYear->is_current)
-                                        <button
-                                            wire:click="setAsCurrent({{ $academicYear->id }})"
-                                            class="p-2 text-green-600 bg-green-100 rounded-md hover:text-green-900 hover:bg-green-200"
-                                            title="Set as Current"
-                                        >
-                                            ⭐
-                                        </button>
-                                    @endif
-
-                                    <button
-                                        wire:click="redirectToShow({{ $academicYear->id }})"
-                                        class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
-                                        title="View"
-                                    >
-                                        👁️
-                                    </button>
-                                    <button
-                                        wire:click="redirectToEdit({{ $academicYear->id }})"
-                                        class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
-                                        title="Edit"
-                                    >
-                                        ✏️
-                                    </button>
-                                    <button
-                                        wire:click="confirmDelete({{ $academicYear->id }})"
-                                        class="p-2 text-red-600 bg-red-100 rounded-md hover:text-red-900 hover:bg-red-200"
-                                        title="Delete"
-                                    >
-                                        🗑️
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="7" class="py-12 text-center">
-                                <div class="flex flex-col items-center justify-center gap-4">
-                                    <x-icon name="o-academic-cap" class="w-20 h-20 text-gray-300" />
-                                    <div>
-                                        <h3 class="text-lg font-semibold text-gray-600">No academic years found</h3>
-                                        <p class="text-gray-500 mt-1">
-                                            @if($search || $status)
-                                                No academic years match your current filters.
-                                            @else
-                                                Get started by creating your first academic year.
-                                            @endif
-                                        </p>
-                                    </div>
-                                    @if($search || $status)
-                                        <x-button
-                                            label="Clear Filters"
-                                            wire:click="resetFilters"
-                                            color="secondary"
-                                            size="sm"
-                                        />
+        <!-- Mobile/Tablet Card View (hidden on desktop) -->
+        <div class="block lg:hidden">
+            <div class="space-y-4">
+                @forelse ($academicYears as $academicYear)
+                    <div class="p-4 transition-colors border rounded-lg bg-base-50 hover:bg-base-100">
+                        <!-- Academic Year Header -->
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-3 mb-2">
+                                    <h3 class="text-lg font-semibold truncate">{{ $academicYear->name }}</h3>
+                                    @if ($academicYear->is_current)
+                                        <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-green-800 bg-green-100 rounded-full">
+                                            ✅ Current
+                                        </span>
                                     @else
-                                        <x-button
-                                            label="Create First Academic Year"
-                                            icon="o-plus"
-                                            wire:click="redirectToCreate"
-                                            color="primary"
-                                        />
+                                        <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 rounded-full">
+                                            ⏳ Not Current
+                                        </span>
                                     @endif
                                 </div>
-                            </td>
+                                <div class="font-mono text-sm text-gray-500">#{{ $academicYear->id }}</div>
+                            </div>
+                            <!-- Actions -->
+                            <div class="flex gap-1 ml-2">
+                                @if (!$academicYear->is_current)
+                                    <button
+                                        wire:click="setAsCurrent({{ $academicYear->id }})"
+                                        class="p-2 text-green-600 bg-green-100 rounded-md hover:text-green-900 hover:bg-green-200"
+                                        title="Set as Current"
+                                    >
+                                        ⭐
+                                    </button>
+                                @endif
+                                <button
+                                    wire:click="redirectToShow({{ $academicYear->id }})"
+                                    class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
+                                    title="View"
+                                >
+                                    👁️
+                                </button>
+                                <button
+                                    wire:click="redirectToEdit({{ $academicYear->id }})"
+                                    class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
+                                    title="Edit"
+                                >
+                                    ✏️
+                                </button>
+                                <button
+                                    wire:click="confirmDelete({{ $academicYear->id }})"
+                                    class="p-2 text-red-600 bg-red-100 rounded-md hover:text-red-900 hover:bg-red-200"
+                                    title="Delete"
+                                >
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Description -->
+                        @if($academicYear->description)
+                            <p class="mb-3 text-sm text-gray-600 line-clamp-2">
+                                {{ Str::limit($academicYear->description, 100) }}
+                            </p>
+                        @endif
+
+                        <!-- Date Range -->
+                        <div class="grid grid-cols-1 gap-3 mb-3 sm:grid-cols-2">
+                            <div>
+                                <label class="block mb-1 text-xs font-medium tracking-wide text-gray-500 uppercase">Start Date</label>
+                                <div class="text-sm font-medium">{{ $academicYear->start_date->format('M d, Y') }}</div>
+                                <div class="text-xs text-gray-500">{{ $academicYear->start_date->format('l') }}</div>
+                            </div>
+                            <div>
+                                <label class="block mb-1 text-xs font-medium tracking-wide text-gray-500 uppercase">End Date</label>
+                                <div class="text-sm font-medium">{{ $academicYear->end_date->format('M d, Y') }}</div>
+                                <div class="text-xs text-gray-500">{{ $academicYear->end_date->format('l') }}</div>
+                            </div>
+                        </div>
+
+                        <!-- Duration Badge -->
+                        <div class="mb-3">
+                            <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-purple-800 bg-purple-100 rounded-full">
+                                📅 {{ $academicYear->start_date->diffInDays($academicYear->end_date) }} days
+                            </span>
+                        </div>
+
+                        <!-- Stats -->
+                        <div class="flex flex-wrap gap-2">
+                            <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-blue-800 bg-blue-100 rounded-full" title="Program Enrollments">
+                                👥 {{ $academicYear->program_enrollments_count ?? 0 }} Enrollments
+                            </span>
+                            <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-orange-800 bg-orange-100 rounded-full" title="Exams">
+                                📝 {{ $academicYear->exams_count ?? 0 }} Exams
+                            </span>
+                        </div>
+                    </div>
+                @empty
+                    <div class="py-12 text-center">
+                        <div class="flex flex-col items-center justify-center gap-4">
+                            <x-icon name="o-academic-cap" class="w-16 h-16 text-gray-300" />
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-600">No academic years found</h3>
+                                <p class="mt-1 text-sm text-gray-500">
+                                    @if($search || $status)
+                                        No academic years match your current filters.
+                                    @else
+                                        Get started by creating your first academic year.
+                                    @endif
+                                </p>
+                            </div>
+                            @if($search || $status)
+                                <x-button
+                                    label="Clear Filters"
+                                    wire:click="resetFilters"
+                                    color="secondary"
+                                    size="sm"
+                                />
+                            @else
+                                <x-button
+                                    label="Create First Academic Year"
+                                    icon="o-plus"
+                                    wire:click="redirectToCreate"
+                                    color="primary"
+                                />
+                            @endif
+                        </div>
+                    </div>
+                @endforelse
+            </div>
+        </div>
+
+        <!-- Desktop Table View (hidden on mobile/tablet) -->
+        <div class="hidden lg:block">
+            <div class="overflow-x-auto">
+                <table class="table w-full table-zebra">
+                    <thead>
+                        <tr>
+                            <th class="cursor-pointer" wire:click="sortBy('id')">
+                                <div class="flex items-center">
+                                    ID
+                                    @if ($sortBy['column'] === 'id')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
+                                    @endif
+                                </div>
+                            </th>
+                            <th class="cursor-pointer" wire:click="sortBy('name')">
+                                <div class="flex items-center">
+                                    Name
+                                    @if ($sortBy['column'] === 'name')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
+                                    @endif
+                                </div>
+                            </th>
+                            <th class="cursor-pointer" wire:click="sortBy('start_date')">
+                                <div class="flex items-center">
+                                    Start Date
+                                    @if ($sortBy['column'] === 'start_date')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
+                                    @endif
+                                </div>
+                            </th>
+                            <th class="cursor-pointer" wire:click="sortBy('end_date')">
+                                <div class="flex items-center">
+                                    End Date
+                                    @if ($sortBy['column'] === 'end_date')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
+                                    @endif
+                                </div>
+                            </th>
+                            <th class="cursor-pointer" wire:click="sortBy('is_current')">
+                                <div class="flex items-center">
+                                    Status
+                                    @if ($sortBy['column'] === 'is_current')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
+                                    @endif
+                                </div>
+                            </th>
+                            <th>Stats</th>
+                            <th class="text-right">Actions</th>
                         </tr>
-                    @endforelse
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        @forelse ($academicYears as $academicYear)
+                            <tr class="hover">
+                                <td class="font-mono text-sm">#{{ $academicYear->id }}</td>
+                                <td>
+                                    <div class="font-bold">{{ $academicYear->name }}</div>
+                                    @if($academicYear->description)
+                                        <div class="max-w-xs text-sm truncate opacity-70">
+                                            {{ Str::limit($academicYear->description, 60) }}
+                                        </div>
+                                    @endif
+                                </td>
+                                <td>
+                                    <div class="font-medium">{{ $academicYear->start_date->format('M d, Y') }}</div>
+                                    <div class="text-xs text-gray-500">{{ $academicYear->start_date->format('D') }}</div>
+                                </td>
+                                <td>
+                                    <div class="font-medium">{{ $academicYear->end_date->format('M d, Y') }}</div>
+                                    <div class="text-xs text-gray-500">{{ $academicYear->end_date->format('D') }}</div>
+                                </td>
+                                <td class="py-2">
+                                    @if ($academicYear->is_current)
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                            ✅ Current
+                                        </span>
+                                    @else
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                                            ⏳ Not Current
+                                        </span>
+                                    @endif
+                                </td>
+                                <td>
+                                    <div class="flex gap-1">
+                                        <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-blue-800 bg-blue-100 rounded-full" title="Program Enrollments">
+                                            👥 {{ $academicYear->program_enrollments_count ?? 0 }}
+                                        </span>
+                                        <span class="inline-flex items-center px-2 py-1 text-xs font-medium text-orange-800 bg-orange-100 rounded-full" title="Exams">
+                                            📝 {{ $academicYear->exams_count ?? 0 }}
+                                        </span>
+                                    </div>
+                                </td>
+                                <td class="text-right">
+                                    <div class="flex justify-end gap-2">
+                                        @if (!$academicYear->is_current)
+                                            <button
+                                                wire:click="setAsCurrent({{ $academicYear->id }})"
+                                                class="p-2 text-green-600 bg-green-100 rounded-md hover:text-green-900 hover:bg-green-200"
+                                                title="Set as Current"
+                                            >
+                                                ⭐
+                                            </button>
+                                        @endif
+
+                                        <button
+                                            wire:click="redirectToShow({{ $academicYear->id }})"
+                                            class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
+                                            title="View"
+                                        >
+                                            👁️
+                                        </button>
+                                        <button
+                                            wire:click="redirectToEdit({{ $academicYear->id }})"
+                                            class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
+                                            title="Edit"
+                                        >
+                                            ✏️
+                                        </button>
+                                        <button
+                                            wire:click="confirmDelete({{ $academicYear->id }})"
+                                            class="p-2 text-red-600 bg-red-100 rounded-md hover:text-red-900 hover:bg-red-200"
+                                            title="Delete"
+                                        >
+                                            🗑️
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="7" class="py-12 text-center">
+                                    <div class="flex flex-col items-center justify-center gap-4">
+                                        <x-icon name="o-academic-cap" class="w-20 h-20 text-gray-300" />
+                                        <div>
+                                            <h3 class="text-lg font-semibold text-gray-600">No academic years found</h3>
+                                            <p class="mt-1 text-gray-500">
+                                                @if($search || $status)
+                                                    No academic years match your current filters.
+                                                @else
+                                                    Get started by creating your first academic year.
+                                                @endif
+                                            </p>
+                                        </div>
+                                        @if($search || $status)
+                                            <x-button
+                                                label="Clear Filters"
+                                                wire:click="resetFilters"
+                                                color="secondary"
+                                                size="sm"
+                                            />
+                                        @else
+                                            <x-button
+                                                label="Create First Academic Year"
+                                                icon="o-plus"
+                                                wire:click="redirectToCreate"
+                                                color="primary"
+                                            />
+                                        @endif
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <!-- Pagination -->
@@ -435,12 +568,21 @@ new #[Title('Academic Years Management')] class extends Component {
 
         <!-- Results summary -->
         @if($academicYears->count() > 0)
-        <div class="mt-4 text-sm text-gray-600 border-t pt-3">
-            Showing {{ $academicYears->firstItem() ?? 0 }} to {{ $academicYears->lastItem() ?? 0 }}
-            of {{ $academicYears->total() }} academic years
-            @if($search || $status)
-                (filtered from total)
-            @endif
+        <div class="pt-3 mt-4 text-sm text-gray-600 border-t">
+            <div class="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
+                <span>
+                    Showing {{ $academicYears->firstItem() ?? 0 }} to {{ $academicYears->lastItem() ?? 0 }}
+                    of {{ $academicYears->total() }} academic years
+                    @if($search || $status)
+                        (filtered from total)
+                    @endif
+                </span>
+                <!-- Mobile view indicator -->
+                <div class="flex items-center gap-2 lg:hidden">
+                    <span class="text-xs text-gray-500">Card view active</span>
+                    <x-icon name="o-calendar-days" class="w-4 h-4 text-gray-400" />
+                </div>
+            </div>
         </div>
         @endif
     </x-card>

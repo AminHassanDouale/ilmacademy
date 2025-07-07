@@ -652,20 +652,21 @@ new #[Title('Finance Reports')] class extends Component {
 };?>
 
 <!-- BLADE TEMPLATE STARTS HERE -->
-<div>
+<div class="p-3 sm:p-6">
     <!-- Page header -->
-    <div class="mb-6">
-        <h1 class="text-3xl font-bold">Finance Reports</h1>
-        <p class="text-gray-600">{{ $reportTypes[$reportType] ?? 'Financial Overview' }}</p>
+    <div class="mb-4 sm:mb-6">
+        <h1 class="text-2xl font-bold sm:text-3xl">Finance Reports</h1>
+        <p class="text-sm text-gray-600 sm:text-base">{{ $reportTypes[$reportType] ?? 'Financial Overview' }}</p>
     </div>
 
     <!-- Filters section -->
-    <div class="bg-white p-6 rounded-lg shadow mb-6">
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <div class="p-4 mb-4 bg-white rounded-lg shadow sm:p-6 sm:mb-6">
+        <h2 class="mb-3 text-lg font-semibold sm:mb-4 md:hidden">Filters</h2>
+        <div class="grid grid-cols-1 gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <!-- Report Type -->
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Report Type</label>
-                <select wire:model.live="reportType" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <label class="block mb-2 text-sm font-medium text-gray-700">Report Type</label>
+                <select wire:model.live="reportType" class="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-base">
                     @foreach($reportTypes as $key => $label)
                         <option value="{{ $key }}" {{ $reportType === $key ? 'selected' : '' }}>{{ $label }}</option>
                     @endforeach
@@ -674,8 +675,8 @@ new #[Title('Finance Reports')] class extends Component {
 
             <!-- Date Range -->
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
-                <select wire:model.live="dateRange" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <label class="block mb-2 text-sm font-medium text-gray-700">Date Range</label>
+                <select wire:model.live="dateRange" class="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-base">
                     @foreach($dateRanges as $key => $label)
                         <option value="{{ $key }}" {{ $dateRange === $key ? 'selected' : '' }}>{{ $label }}</option>
                     @endforeach
@@ -684,8 +685,8 @@ new #[Title('Finance Reports')] class extends Component {
 
             <!-- Academic Year -->
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Academic Year</label>
-                <select wire:model.live="academicYearId" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <label class="block mb-2 text-sm font-medium text-gray-700">Academic Year</label>
+                <select wire:model.live="academicYearId" class="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-base">
                     <option value="">Select academic year</option>
                     @foreach($academicYearsCollection ?? [] as $year)
                         <option value="{{ $year->id }}" {{ $academicYearId == $year->id ? 'selected' : '' }}>{{ $year->name }}</option>
@@ -695,8 +696,8 @@ new #[Title('Finance Reports')] class extends Component {
 
             <!-- Curriculum -->
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Curriculum</label>
-                <select wire:model.live="curriculumId" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <label class="block mb-2 text-sm font-medium text-gray-700">Curriculum</label>
+                <select wire:model.live="curriculumId" class="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-base">
                     <option value="">All curricula</option>
                     @foreach($curriculaCollection ?? [] as $curriculum)
                         <option value="{{ $curriculum->id }}" {{ $curriculumId == $curriculum->id ? 'selected' : '' }}>{{ $curriculum->name }}</option>
@@ -707,120 +708,120 @@ new #[Title('Finance Reports')] class extends Component {
 
         <!-- Custom Date Range (conditionally shown) -->
         @if($dateRange === 'custom')
-            <div class="grid grid-cols-1 gap-4 md:grid-cols-2 mt-4">
+            <div class="grid grid-cols-1 gap-3 mt-4 sm:gap-4 sm:grid-cols-2">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
-                    <input type="date" wire:model.live="startDate" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <label class="block mb-2 text-sm font-medium text-gray-700">Start Date</label>
+                    <input type="date" wire:model.live="startDate" class="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-base">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">End Date</label>
-                    <input type="date" wire:model.live="endDate" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <label class="block mb-2 text-sm font-medium text-gray-700">End Date</label>
+                    <input type="date" wire:model.live="endDate" class="w-full p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-base">
                 </div>
             </div>
         @endif
 
-        <div class="flex justify-end mt-4">
-            <button wire:click="resetFilters" class="px-4 py-2 text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200">
+        <div class="flex justify-center mt-4 sm:justify-end">
+            <button wire:click="resetFilters" class="w-full px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 sm:w-auto sm:text-base">
                 Reset Filters
             </button>
         </div>
     </div>
 
     <!-- Key Metrics -->
-    <div class="bg-white p-6 rounded-lg shadow mb-6">
-        <h2 class="text-xl font-semibold mb-4">Key Metrics</h2>
+    <div class="p-4 mb-4 bg-white rounded-lg shadow sm:p-6 sm:mb-6">
+        <h2 class="mb-3 text-lg font-semibold sm:text-xl sm:mb-4">Key Metrics</h2>
 
         @if($reportType === 'overview')
-            <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Total Invoices</div>
-                    <div class="text-3xl font-bold">{{ number_format($metrics['invoice_count'] ?? 0) }}</div>
+            <div class="grid grid-cols-1 gap-3 sm:gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                <div class="p-3 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Total Invoices</div>
+                    <div class="text-2xl font-bold sm:text-3xl">{{ number_format($metrics['invoice_count'] ?? 0) }}</div>
                 </div>
             </div>
         @elseif($reportType === 'payments')
-            <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-5">
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Total Payments</div>
-                    <div class="text-3xl font-bold">{{ number_format($metrics['total_payments'] ?? 0) }}</div>
+            <div class="grid grid-cols-2 gap-2 sm:gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Total Payments</div>
+                    <div class="text-lg font-bold sm:text-3xl">{{ number_format($metrics['total_payments'] ?? 0) }}</div>
                 </div>
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Total Amount</div>
-                    <div class="text-3xl font-bold">${{ number_format($metrics['total_amount'] ?? 0, 2) }}</div>
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Total Amount</div>
+                    <div class="text-lg font-bold sm:text-3xl">${{ number_format($metrics['total_amount'] ?? 0, 2) }}</div>
                 </div>
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Average Payment</div>
-                    <div class="text-3xl font-bold text-green-600">${{ number_format($metrics['average_amount'] ?? 0, 2) }}</div>
+                <div class="col-span-2 p-2 rounded-lg bg-gray-50 sm:p-4 sm:col-span-1">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Average Payment</div>
+                    <div class="text-lg font-bold text-green-600 sm:text-3xl">${{ number_format($metrics['average_amount'] ?? 0, 2) }}</div>
                 </div>
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Highest Payment</div>
-                    <div class="text-3xl font-bold text-blue-600">${{ number_format($metrics['max_amount'] ?? 0, 2) }}</div>
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Highest Payment</div>
+                    <div class="text-lg font-bold text-blue-600 sm:text-3xl">${{ number_format($metrics['max_amount'] ?? 0, 2) }}</div>
                 </div>
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Lowest Payment</div>
-                    <div class="text-3xl font-bold text-orange-600">${{ number_format($metrics['min_amount'] ?? 0, 2) }}</div>
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Lowest Payment</div>
+                    <div class="text-lg font-bold text-orange-600 sm:text-3xl">${{ number_format($metrics['min_amount'] ?? 0, 2) }}</div>
                 </div>
             </div>
         @elseif($reportType === 'invoices')
-            <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-5">
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Total Invoices</div>
-                    <div class="text-3xl font-bold">{{ number_format($metrics['total_invoices'] ?? 0) }}</div>
+            <div class="grid grid-cols-2 gap-2 sm:gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Total Invoices</div>
+                    <div class="text-lg font-bold sm:text-3xl">{{ number_format($metrics['total_invoices'] ?? 0) }}</div>
                 </div>
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Total Amount</div>
-                    <div class="text-3xl font-bold">${{ number_format($metrics['total_amount'] ?? 0, 2) }}</div>
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Total Amount</div>
+                    <div class="text-lg font-bold sm:text-3xl">${{ number_format($metrics['total_amount'] ?? 0, 2) }}</div>
                 </div>
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Paid Invoices</div>
-                    <div class="text-3xl font-bold text-green-600">{{ number_format($metrics['paid_invoices'] ?? 0) }}</div>
+                <div class="col-span-2 p-2 rounded-lg bg-gray-50 sm:p-4 sm:col-span-1">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Paid Invoices</div>
+                    <div class="text-lg font-bold text-green-600 sm:text-3xl">{{ number_format($metrics['paid_invoices'] ?? 0) }}</div>
                 </div>
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Pending Invoices</div>
-                    <div class="text-3xl font-bold text-yellow-600">{{ number_format($metrics['pending_invoices'] ?? 0) }}</div>
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Pending Invoices</div>
+                    <div class="text-lg font-bold text-yellow-600 sm:text-3xl">{{ number_format($metrics['pending_invoices'] ?? 0) }}</div>
                 </div>
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Collection Rate</div>
-                    <div class="text-3xl font-bold text-blue-600">{{ number_format($metrics['collection_rate'] ?? 0, 1) }}%</div>
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Collection Rate</div>
+                    <div class="text-lg font-bold text-blue-600 sm:text-3xl">{{ number_format($metrics['collection_rate'] ?? 0, 1) }}%</div>
                 </div>
             </div>
         @elseif($reportType === 'curriculum')
-            <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Total Curricula</div>
-                    <div class="text-3xl font-bold">{{ number_format($metrics['total_curricula'] ?? 0) }}</div>
+            <div class="grid grid-cols-2 gap-2 sm:gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Total Curricula</div>
+                    <div class="text-lg font-bold sm:text-3xl">{{ number_format($metrics['total_curricula'] ?? 0) }}</div>
                 </div>
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Total Revenue</div>
-                    <div class="text-3xl font-bold">${{ number_format($metrics['total_revenue'] ?? 0, 2) }}</div>
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Total Revenue</div>
+                    <div class="text-lg font-bold sm:text-3xl">${{ number_format($metrics['total_revenue'] ?? 0, 2) }}</div>
                 </div>
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Total Payments</div>
-                    <div class="text-3xl font-bold">{{ number_format($metrics['total_payments'] ?? 0) }}</div>
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Total Payments</div>
+                    <div class="text-lg font-bold sm:text-3xl">{{ number_format($metrics['total_payments'] ?? 0) }}</div>
                 </div>
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Avg per Curriculum</div>
-                    <div class="text-3xl font-bold text-green-600">${{ number_format($metrics['average_per_curriculum'] ?? 0, 2) }}</div>
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Avg per Curriculum</div>
+                    <div class="text-lg font-bold text-green-600 sm:text-3xl">${{ number_format($metrics['average_per_curriculum'] ?? 0, 2) }}</div>
                 </div>
             </div>
         @elseif($reportType === 'trends')
-            <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Current Period</div>
-                    <div class="text-3xl font-bold">${{ number_format($metrics['current_period_revenue'] ?? 0, 2) }}</div>
+            <div class="grid grid-cols-2 gap-2 sm:gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Current Period</div>
+                    <div class="text-lg font-bold sm:text-3xl">${{ number_format($metrics['current_period_revenue'] ?? 0, 2) }}</div>
                 </div>
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Previous Period</div>
-                    <div class="text-3xl font-bold">${{ number_format($metrics['previous_period_revenue'] ?? 0, 2) }}</div>
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Previous Period</div>
+                    <div class="text-lg font-bold sm:text-3xl">${{ number_format($metrics['previous_period_revenue'] ?? 0, 2) }}</div>
                 </div>
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Growth Rate</div>
-                    <div class="text-3xl font-bold {{ ($metrics['growth_rate'] ?? 0) > 0 ? 'text-green-600' : (($metrics['growth_rate'] ?? 0) < 0 ? 'text-red-600' : 'text-gray-600') }}">
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Growth Rate</div>
+                    <div class="text-lg font-bold sm:text-3xl {{ ($metrics['growth_rate'] ?? 0) > 0 ? 'text-green-600' : (($metrics['growth_rate'] ?? 0) < 0 ? 'text-red-600' : 'text-gray-600') }}">
                         {{ number_format($metrics['growth_rate'] ?? 0, 1) }}%
                     </div>
                 </div>
-                <div class="p-4 rounded-lg bg-gray-50">
-                    <div class="text-sm font-medium text-gray-500">Trend</div>
-                    <div class="text-3xl font-bold {{ ($metrics['trend_direction'] ?? '') === 'up' ? 'text-green-600' : (($metrics['trend_direction'] ?? '') === 'down' ? 'text-red-600' : 'text-gray-600') }}">
+                <div class="p-2 rounded-lg bg-gray-50 sm:p-4">
+                    <div class="text-xs font-medium text-gray-500 sm:text-sm">Trend</div>
+                    <div class="text-lg font-bold sm:text-3xl {{ ($metrics['trend_direction'] ?? '') === 'up' ? 'text-green-600' : (($metrics['trend_direction'] ?? '') === 'down' ? 'text-red-600' : 'text-gray-600') }}">
                         {{ ucfirst($metrics['trend_direction'] ?? 'stable') }}
                     </div>
                 </div>
@@ -830,8 +831,8 @@ new #[Title('Finance Reports')] class extends Component {
 
     <!-- Data Tables -->
     @if(in_array($reportType, ['overview', 'payments', 'invoices']))
-        <div class="bg-white p-6 rounded-lg shadow">
-            <h2 class="text-xl font-semibold mb-4">
+        <div class="p-4 bg-white rounded-lg shadow sm:p-6">
+            <h2 class="mb-3 text-lg font-semibold sm:text-xl sm:mb-4">
                 @if($reportType === 'overview') Recent Payments
                 @elseif($reportType === 'payments') Payment Details
                 @elseif($reportType === 'invoices') Recent Invoices
@@ -844,47 +845,63 @@ new #[Title('Finance Reports')] class extends Component {
                         <thead class="bg-gray-50">
                             <tr>
                                 @if($reportType === 'invoices')
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice Date</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Due Date</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Academic Year</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Curriculum</th>
+                                    <th class="px-3 py-2 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:px-6 sm:py-3">Student</th>
+                                    <th class="px-3 py-2 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:px-6 sm:py-3">Amount</th>
+                                    <th class="px-3 py-2 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:px-6 sm:py-3">Status</th>
+                                    <th class="hidden px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase md:table-cell">Invoice Date</th>
+                                    <th class="hidden px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase lg:table-cell">Due Date</th>
+                                    <th class="hidden px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase lg:table-cell">Academic Year</th>
+                                    <th class="hidden px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase xl:table-cell">Curriculum</th>
                                 @else
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Method</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Academic Year</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Curriculum</th>
+                                    <th class="px-3 py-2 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:px-6 sm:py-3">Student</th>
+                                    <th class="px-3 py-2 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:px-6 sm:py-3">Amount</th>
+                                    <th class="hidden px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:table-cell">Method</th>
+                                    <th class="hidden px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase md:table-cell">Date</th>
+                                    <th class="hidden px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase lg:table-cell">Academic Year</th>
+                                    <th class="hidden px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase xl:table-cell">Curriculum</th>
                                 @endif
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
                             @foreach($tableData as $item)
-                                <tr>
+                                <tr class="hover:bg-gray-50">
                                     @if($reportType === 'invoices')
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ $item['student'] }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${{ number_format($item['amount'], 2) }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap">
+                                        <td class="px-3 py-3 text-xs text-gray-900 sm:px-6 sm:py-4 sm:text-sm">
+                                            <div class="font-medium">
+                                                <span class="hidden sm:inline">{{ $item['student'] }}</span>
+                                                <span class="sm:hidden">{{ Str::limit($item['student'], 15) }}</span>
+                                            </div>
+                                            <div class="text-xs text-gray-500 md:hidden">
+                                                {{ $item['date'] }} • {{ ucfirst($item['status']) }}
+                                            </div>
+                                        </td>
+                                        <td class="px-3 py-3 text-xs font-medium text-gray-900 sm:px-6 sm:py-4 sm:text-sm">${{ number_format($item['amount'], 2) }}</td>
+                                        <td class="px-3 py-3 sm:px-6 sm:py-4 whitespace-nowrap">
                                             <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
                                                 {{ $item['status'] === 'paid' ? 'bg-green-100 text-green-800' :
                                                    ($item['status'] === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800') }}">
                                                 {{ ucfirst($item['status']) }}
                                             </span>
                                         </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ $item['date'] }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ $item['due_date'] }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ $item['academic_year'] }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ $item['curriculum'] }}</td>
+                                        <td class="hidden px-6 py-4 text-sm text-gray-900 md:table-cell whitespace-nowrap">{{ $item['date'] }}</td>
+                                        <td class="hidden px-6 py-4 text-sm text-gray-900 lg:table-cell whitespace-nowrap">{{ $item['due_date'] }}</td>
+                                        <td class="hidden px-6 py-4 text-sm text-gray-900 lg:table-cell whitespace-nowrap">{{ $item['academic_year'] }}</td>
+                                        <td class="hidden px-6 py-4 text-sm text-gray-900 xl:table-cell whitespace-nowrap">{{ $item['curriculum'] }}</td>
                                     @else
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ $item['student'] }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${{ number_format($item['amount'], 2) }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ $item['payment_method'] }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ $item['date'] }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ $item['academic_year'] }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ $item['curriculum'] }}</td>
+                                        <td class="px-3 py-3 text-xs text-gray-900 sm:px-6 sm:py-4 sm:text-sm">
+                                            <div class="font-medium">
+                                                <span class="hidden sm:inline">{{ $item['student'] }}</span>
+                                                <span class="sm:hidden">{{ Str::limit($item['student'], 15) }}</span>
+                                            </div>
+                                            <div class="text-xs text-gray-500 sm:hidden">
+                                                {{ $item['payment_method'] }} • {{ $item['date'] }}
+                                            </div>
+                                        </td>
+                                        <td class="px-3 py-3 text-xs font-medium text-gray-900 sm:px-6 sm:py-4 sm:text-sm">${{ number_format($item['amount'], 2) }}</td>
+                                        <td class="hidden px-6 py-4 text-sm text-gray-900 sm:table-cell whitespace-nowrap">{{ $item['payment_method'] }}</td>
+                                        <td class="hidden px-6 py-4 text-sm text-gray-900 md:table-cell whitespace-nowrap">{{ $item['date'] }}</td>
+                                        <td class="hidden px-6 py-4 text-sm text-gray-900 lg:table-cell whitespace-nowrap">{{ $item['academic_year'] }}</td>
+                                        <td class="hidden px-6 py-4 text-sm text-gray-900 xl:table-cell whitespace-nowrap">{{ $item['curriculum'] }}</td>
                                     @endif
                                 </tr>
                             @endforeach
@@ -892,74 +909,87 @@ new #[Title('Finance Reports')] class extends Component {
                     </table>
                 </div>
             @else
-                <div class="text-center py-8">
-                    <p class="text-gray-500">No data available for the selected filters</p>
+                <div class="py-6 text-center sm:py-8">
+                    <p class="text-sm text-gray-500 sm:text-base">No data available for the selected filters</p>
                 </div>
             @endif
         </div>
     @elseif($reportType === 'curriculum')
         <!-- Curriculum Revenue Table -->
-        <div class="bg-white p-6 rounded-lg shadow">
-            <h2 class="text-xl font-semibold mb-4">Revenue by Curriculum</h2>
+        <div class="p-4 bg-white rounded-lg shadow sm:p-6">
+            <h2 class="mb-3 text-lg font-semibold sm:text-xl sm:mb-4">Revenue by Curriculum</h2>
             @if(!empty($tableData))
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
                             <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Curriculum</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Revenue</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Count</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Average Payment</th>
+                                <th class="px-3 py-2 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:px-6 sm:py-3">Curriculum</th>
+                                <th class="px-3 py-2 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:px-6 sm:py-3">Revenue</th>
+                                <th class="hidden px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:table-cell">Payment Count</th>
+                                <th class="hidden px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase md:table-cell">Average Payment</th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
                             @foreach($tableData as $item)
-                                <tr>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ $item['curriculum'] }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${{ number_format($item['total_revenue'], 2) }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ number_format($item['payment_count']) }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${{ number_format($item['average_payment'], 2) }}</td>
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-3 py-3 text-xs font-medium text-gray-900 sm:px-6 sm:py-4 sm:text-sm">
+                                        <div>
+                                            <span class="hidden sm:inline">{{ $item['curriculum'] }}</span>
+                                            <span class="sm:hidden">{{ Str::limit($item['curriculum'], 20) }}</span>
+                                        </div>
+                                        <div class="text-xs text-gray-500 sm:hidden">
+                                            {{ number_format($item['payment_count']) }} payments
+                                        </div>
+                                    </td>
+                                    <td class="px-3 py-3 text-xs font-medium text-gray-900 sm:px-6 sm:py-4 sm:text-sm">${{ number_format($item['total_revenue'], 2) }}</td>
+                                    <td class="hidden px-6 py-4 text-sm text-gray-900 sm:table-cell whitespace-nowrap">{{ number_format($item['payment_count']) }}</td>
+                                    <td class="hidden px-6 py-4 text-sm text-gray-900 md:table-cell whitespace-nowrap">${{ number_format($item['average_payment'], 2) }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
                     </table>
                 </div>
             @else
-                <div class="text-center py-8">
-                    <p class="text-gray-500">No curriculum data available for the selected filters</p>
+                <div class="py-6 text-center sm:py-8">
+                    <p class="text-sm text-gray-500 sm:text-base">No curriculum data available for the selected filters</p>
                 </div>
             @endif
         </div>
     @elseif($reportType === 'trends')
         <!-- Monthly Trends Table -->
-        <div class="bg-white p-6 rounded-lg shadow">
-            <h2 class="text-xl font-semibold mb-4">Monthly Financial Trends</h2>
+        <div class="p-4 bg-white rounded-lg shadow sm:p-6">
+            <h2 class="mb-3 text-lg font-semibold sm:text-xl sm:mb-4">Monthly Financial Trends</h2>
             @if(!empty($tableData))
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
                             <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Amount</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Count</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Average Payment</th>
+                                <th class="px-3 py-2 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:px-6 sm:py-3">Month</th>
+                                <th class="px-3 py-2 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:px-6 sm:py-3">Amount</th>
+                                <th class="hidden px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:table-cell">Count</th>
+                                <th class="hidden px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase md:table-cell">Average</th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
                             @foreach($tableData as $item)
-                                <tr>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ $item['month'] }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${{ number_format($item['total_amount'], 2) }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ number_format($item['payment_count']) }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${{ number_format($item['average_amount'], 2) }}</td>
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-3 py-3 text-xs font-medium text-gray-900 sm:px-6 sm:py-4 sm:text-sm">
+                                        <div>{{ $item['month'] }}</div>
+                                        <div class="text-xs text-gray-500 sm:hidden">
+                                            {{ number_format($item['payment_count']) }} payments
+                                        </div>
+                                    </td>
+                                    <td class="px-3 py-3 text-xs font-medium text-gray-900 sm:px-6 sm:py-4 sm:text-sm">${{ number_format($item['total_amount'], 2) }}</td>
+                                    <td class="hidden px-6 py-4 text-sm text-gray-900 sm:table-cell whitespace-nowrap">{{ number_format($item['payment_count']) }}</td>
+                                    <td class="hidden px-6 py-4 text-sm text-gray-900 md:table-cell whitespace-nowrap">${{ number_format($item['average_amount'], 2) }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
                     </table>
                 </div>
             @else
-                <div class="text-center py-8">
-                    <p class="text-gray-500">No trend data available for the selected filters</p>
+                <div class="py-6 text-center sm:py-8">
+                    <p class="text-sm text-gray-500 sm:text-base">No trend data available for the selected filters</p>
                 </div>
             @endif
         </div>
@@ -967,25 +997,30 @@ new #[Title('Finance Reports')] class extends Component {
 
     <!-- Charts Section for Payments Report -->
     @if($reportType === 'payments' && !empty($chartData['by_method']))
-        <div class="bg-white p-6 rounded-lg shadow mt-6">
-            <h2 class="text-xl font-semibold mb-4">Payment Methods Distribution</h2>
+        <div class="p-4 mt-4 bg-white rounded-lg shadow sm:p-6 sm:mt-6">
+            <h2 class="mb-3 text-lg font-semibold sm:text-xl sm:mb-4">Payment Methods Distribution</h2>
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Method</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Amount</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Percentage</th>
+                            <th class="px-3 py-2 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:px-6 sm:py-3">Method</th>
+                            <th class="px-3 py-2 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:px-6 sm:py-3">Count</th>
+                            <th class="hidden px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:table-cell">Total Amount</th>
+                            <th class="hidden px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase md:table-cell">Percentage</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
                         @foreach($chartData['by_method'] as $method)
-                            <tr>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ $method['method'] }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ number_format($method['count']) }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${{ number_format($method['total'], 2) }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ $method['percentage'] }}%</td>
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-3 py-3 text-xs font-medium text-gray-900 sm:px-6 sm:py-4 sm:text-sm">
+                                    <div>{{ $method['method'] }}</div>
+                                    <div class="text-xs text-gray-500 sm:hidden">
+                                        ${{ number_format($method['total'], 2) }} ({{ $method['percentage'] }}%)
+                                    </div>
+                                </td>
+                                <td class="px-3 py-3 text-xs text-gray-900 sm:px-6 sm:py-4 sm:text-sm whitespace-nowrap">{{ number_format($method['count']) }}</td>
+                                <td class="hidden px-6 py-4 text-sm text-gray-900 sm:table-cell whitespace-nowrap">${{ number_format($method['total'], 2) }}</td>
+                                <td class="hidden px-6 py-4 text-sm text-gray-900 md:table-cell whitespace-nowrap">{{ $method['percentage'] }}%</td>
                             </tr>
                         @endforeach
                     </tbody>
@@ -996,29 +1031,32 @@ new #[Title('Finance Reports')] class extends Component {
 
     <!-- Charts Section for Invoices Report -->
     @if($reportType === 'invoices' && !empty($chartData['by_status']))
-        <div class="bg-white p-6 rounded-lg shadow mt-6">
-            <h2 class="text-xl font-semibold mb-4">Invoice Status Distribution</h2>
+        <div class="p-4 mt-4 bg-white rounded-lg shadow sm:p-6 sm:mt-6">
+            <h2 class="mb-3 text-lg font-semibold sm:text-xl sm:mb-4">Invoice Status Distribution</h2>
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Amount</th>
+                            <th class="px-3 py-2 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:px-6 sm:py-3">Status</th>
+                            <th class="px-3 py-2 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:px-6 sm:py-3">Count</th>
+                            <th class="hidden px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase sm:table-cell">Total Amount</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
                         @foreach($chartData['by_status'] as $status)
-                            <tr>
-                                <td class="px-6 py-4 whitespace-nowrap">
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-3 py-3 sm:px-6 sm:py-4 whitespace-nowrap">
                                     <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
                                         {{ $status['status'] === 'paid' ? 'bg-green-100 text-green-800' :
                                            ($status['status'] === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800') }}">
                                         {{ ucfirst($status['status']) }}
                                     </span>
+                                    <div class="mt-1 text-xs text-gray-500 sm:hidden">
+                                        ${{ number_format($status['total'], 2) }}
+                                    </div>
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ number_format($status['count']) }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${{ number_format($status['total'], 2) }}</td>
+                                <td class="px-3 py-3 text-xs text-gray-900 sm:px-6 sm:py-4 sm:text-sm whitespace-nowrap">{{ number_format($status['count']) }}</td>
+                                <td class="hidden px-6 py-4 text-sm text-gray-900 sm:table-cell whitespace-nowrap">${{ number_format($status['total'], 2) }}</td>
                             </tr>
                         @endforeach
                     </tbody>
@@ -1028,8 +1066,8 @@ new #[Title('Finance Reports')] class extends Component {
     @endif
 
     <!-- Export Button -->
-    <div class="mt-6 flex justify-end">
-        <button wire:click="exportReport" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+    <div class="flex justify-center mt-4 sm:mt-6 sm:justify-end">
+        <button wire:click="exportReport" class="w-full px-6 py-2 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 sm:w-auto sm:text-base">
             Export Report
         </button>
     </div>

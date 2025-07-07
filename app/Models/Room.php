@@ -27,9 +27,9 @@ class Room extends Model
         'is_accessible' => 'boolean',
     ];
 
-    // Sessions held in this room
+
     public function sessions()
-    {
-        return $this->hasMany(Session::class, 'classroom_id');
-    }
+{
+    return $this->hasMany(Session::class, 'classroom_id');
+}
 }

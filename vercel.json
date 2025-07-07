@@ -1,20 +1,15 @@
 {
   "version": 2,
-  "outputDirectory": "public",
   "builds": [
     {
-      "src": "composer.json",
-      "use": "vercel-php@0.6.0"
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "public"
+      }
     }
   ],
-  "routes": [
-    {
-      "src": "/build/(.*)",
-      "dest": "/public/build/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/public/index.php"
-    }
-  ]
+  "installCommand": "npm install --legacy-peer-deps",
+  "buildCommand": "npm run build",
+  "outputDirectory": "public"
 }

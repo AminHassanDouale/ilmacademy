@@ -146,7 +146,6 @@
                 <x-menu-separator />
                 <x-menu-item title="Calendar" icon="o-calendar" link="/calendar" />
                 <x-menu-item title="Notifications" icon="o-bell" link="/notifications" />
-                <x-menu-item title="Profile Settings" icon="o-cog-6-tooth" link="/profile" />
                 <x-menu-separator />
                 <x-menu-item title="Search" @click.stop="$dispatch('mary-search-open')" icon="o-magnifying-glass" badge="Cmd + G" />
             @endauth

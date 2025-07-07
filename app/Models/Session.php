@@ -7,9 +7,12 @@ use Illuminate\Database\Eloquent\Model;
 
 class Session extends Model
 {
+    use HasFactory;
+
     protected $fillable = [
         'subject_id',
         'teacher_profile_id',
+        'classroom_id',  // Add this line
         'start_time',
         'end_time',
         'link',
@@ -34,5 +37,11 @@ class Session extends Model
     public function attendances()
     {
         return $this->hasMany(Attendance::class);
+    }
+
+    // Add this relationship
+    public function classroom()
+    {
+        return $this->belongsTo(Room::class, 'classroom_id');
     }
 }

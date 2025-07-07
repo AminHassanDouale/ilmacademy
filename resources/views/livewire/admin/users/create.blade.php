@@ -276,7 +276,7 @@ new #[Title('Create User')] class extends Component {
 
 
 <div>
-    <!-- Page header -->
+    <!-- Mobile-first responsive page header -->
     <x-header title="Create New User" separator>
         <x-slot:actions>
             <x-button
@@ -284,16 +284,19 @@ new #[Title('Create User')] class extends Component {
                 icon="o-arrow-left"
                 link="{{ route('admin.users.index') }}"
                 class="btn-ghost"
+                responsive
             />
         </x-slot:actions>
     </x-header>
 
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <!-- Left column (2/3) - Form -->
-        <div class="lg:col-span-2">
+    <!-- Responsive layout: stacked on mobile, side-by-side on desktop -->
+    <div class="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
+        <!-- Main form section - full width on mobile, 2/3 on desktop -->
+        <div class="order-2 lg:order-1 lg:col-span-2">
             <x-card title="User Information">
-                <form wire:submit="save" class="space-y-6">
-                    <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                <form wire:submit="save" class="space-y-4 sm:space-y-6">
+                    <!-- Responsive form grid -->
+                    <div class="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2">
                         <!-- Name -->
                         <div>
                             <x-input
@@ -301,6 +304,7 @@ new #[Title('Create User')] class extends Component {
                                 wire:model.live="name"
                                 placeholder="Enter user's full name"
                                 required
+                                class="w-full"
                             />
                             @error('name')
                                 <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
@@ -315,6 +319,7 @@ new #[Title('Create User')] class extends Component {
                                 type="email"
                                 placeholder="user@example.com"
                                 required
+                                class="w-full"
                             />
                             @error('email')
                                 <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
@@ -329,6 +334,7 @@ new #[Title('Create User')] class extends Component {
                                 type="password"
                                 placeholder="Enter secure password"
                                 required
+                                class="w-full"
                             />
                             @error('password')
                                 <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
@@ -343,6 +349,7 @@ new #[Title('Create User')] class extends Component {
                                 type="password"
                                 placeholder="Confirm password"
                                 required
+                                class="w-full"
                             />
                             @error('password_confirmation')
                                 <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
@@ -355,6 +362,7 @@ new #[Title('Create User')] class extends Component {
                                 label="Phone Number"
                                 wire:model.live="phone"
                                 placeholder="Optional phone number"
+                                class="w-full"
                             />
                             @error('phone')
                                 <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
@@ -366,7 +374,7 @@ new #[Title('Create User')] class extends Component {
                             <label class="block mb-2 text-sm font-medium text-gray-700">Status *</label>
                             <select
                                 wire:model.live="status"
-                                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                class="w-full px-3 py-2 text-sm border border-gray-300 rounded-md shadow-sm sm:text-base focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                 required
                             >
                                 @foreach($this->statusOptions as $value => $label)
@@ -378,13 +386,14 @@ new #[Title('Create User')] class extends Component {
                             @enderror
                         </div>
 
-                        <!-- Address -->
+                        <!-- Address - spans full width on all screen sizes -->
                         <div class="md:col-span-2">
                             <x-textarea
                                 label="Address"
                                 wire:model.live="address"
                                 placeholder="Optional address"
                                 rows="3"
+                                class="w-full"
                             />
                             @error('address')
                                 <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
@@ -392,30 +401,31 @@ new #[Title('Create User')] class extends Component {
                         </div>
                     </div>
 
-                    <!-- Roles Section -->
-                    <div class="pt-6 border-t">
+                    <!-- Responsive Roles Section -->
+                    <div class="pt-4 border-t sm:pt-6">
                         <div class="mb-4">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                            <label class="block mb-2 text-sm font-medium text-gray-700">
                                 User Roles *
                             </label>
-                            <p class="text-sm text-gray-500 mb-4">
+                            <p class="mb-4 text-sm text-gray-500">
                                 Select one or more roles for this user. Users can have multiple roles.
                             </p>
                         </div>
 
-                        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <!-- Responsive roles grid: 1 column on mobile, 2 on tablet+ -->
+                        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                             @foreach($roleOptions as $role)
                                 <div class="relative">
-                                    <label class="flex items-start p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 {{ $this->isRoleSelected($role['id']) ? 'border-blue-500 bg-blue-50' : 'border-gray-200' }}">
+                                    <label class="flex items-start p-3 border-2 rounded-lg cursor-pointer transition-colors duration-200 hover:bg-gray-50 sm:p-4 {{ $this->isRoleSelected($role['id']) ? 'border-blue-500 bg-blue-50' : 'border-gray-200' }}">
                                         <input
                                             type="checkbox"
                                             wire:click="toggleRole('{{ $role['id'] }}')"
                                             {{ $this->isRoleSelected($role['id']) ? 'checked' : '' }}
                                             class="w-4 h-4 mt-1 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                                         />
-                                        <div class="ml-3">
-                                            <div class="font-medium text-gray-900">{{ $role['name'] }}</div>
-                                            <div class="text-sm text-gray-500">{{ $role['description'] }}</div>
+                                        <div class="flex-1 min-w-0 ml-3">
+                                            <div class="text-sm font-medium text-gray-900 sm:text-base">{{ $role['name'] }}</div>
+                                            <div class="text-xs text-gray-500 sm:text-sm">{{ $role['description'] }}</div>
                                         </div>
                                     </label>
                                 </div>
@@ -427,44 +437,48 @@ new #[Title('Create User')] class extends Component {
                         @enderror
                     </div>
 
-                    <div class="flex justify-end pt-6">
+                    <!-- Responsive action buttons -->
+                    <div class="flex flex-col gap-3 pt-4 sm:flex-row sm:justify-end sm:gap-2 sm:pt-6">
                         <x-button
                             label="Cancel"
                             link="{{ route('admin.users.index') }}"
-                            class="mr-2"
+                            class="order-2 w-full sm:order-1 sm:w-auto"
                         />
                         <x-button
                             label="Create User"
                             icon="o-user-plus"
                             type="submit"
                             color="primary"
+                            class="order-1 w-full sm:order-2 sm:w-auto"
                         />
                     </div>
                 </form>
             </x-card>
         </div>
 
-        <!-- Right column (1/3) - Preview and Help -->
-        <div class="space-y-6">
+        <!-- Right sidebar - appears first on mobile, right side on desktop -->
+        <div class="order-1 space-y-4 lg:order-2 sm:space-y-6">
             <!-- User Preview Card -->
             <x-card title="User Preview">
-                <div class="p-4 rounded-lg bg-base-200">
-                    <div class="flex items-center mb-4">
+                <div class="p-3 rounded-lg sm:p-4 bg-base-200">
+                    <!-- Responsive user info layout -->
+                    <div class="flex items-center mb-3 sm:mb-4">
                         <div class="avatar">
-                            <div class="w-16 h-16 rounded-full">
+                            <div class="w-12 h-12 rounded-full sm:w-16 sm:h-16">
                                 <img src="https://ui-avatars.com/api/?name={{ urlencode($name ?: 'User Name') }}&color=7F9CF5&background=EBF4FF" alt="User Avatar" />
                             </div>
                         </div>
-                        <div class="ml-4">
-                            <div class="font-semibold text-lg">{{ $name ?: 'User Name' }}</div>
-                            <div class="text-sm text-gray-500">{{ $email ?: 'user@example.com' }}</div>
+                        <div class="flex-1 min-w-0 ml-3 sm:ml-4">
+                            <div class="text-base font-semibold truncate sm:text-lg">{{ $name ?: 'User Name' }}</div>
+                            <div class="text-sm text-gray-500 truncate">{{ $email ?: 'user@example.com' }}</div>
                         </div>
                     </div>
 
-                    <div class="space-y-3 text-sm">
-                        <div>
-                            <strong>Status:</strong>
-                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ml-2 {{ match($status) {
+                    <!-- User details with responsive layout -->
+                    <div class="space-y-2 text-sm sm:space-y-3">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <strong class="text-xs sm:text-sm">Status:</strong>
+                            <span class="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full {{ match($status) {
                                 'active' => 'bg-green-100 text-green-800',
                                 'inactive' => 'bg-gray-100 text-gray-600',
                                 'suspended' => 'bg-red-100 text-red-800',
@@ -475,19 +489,25 @@ new #[Title('Create User')] class extends Component {
                         </div>
 
                         @if($phone)
-                            <div><strong>Phone:</strong> {{ $phone }}</div>
+                            <div class="text-xs sm:text-sm">
+                                <strong>Phone:</strong>
+                                <span class="break-all">{{ $phone }}</span>
+                            </div>
                         @endif
 
                         @if($address)
-                            <div><strong>Address:</strong> {{ $address }}</div>
+                            <div class="text-xs sm:text-sm">
+                                <strong>Address:</strong>
+                                <span class="break-words">{{ $address }}</span>
+                            </div>
                         @endif
 
                         <div>
-                            <strong>Roles:</strong>
+                            <strong class="text-xs sm:text-sm">Roles:</strong>
                             @if(count($selectedRoles) > 0)
                                 <div class="flex flex-wrap gap-1 mt-1">
                                     @foreach($selectedRoles as $role)
-                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium {{ match($role) {
+                                        <span class="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full {{ match($role) {
                                             'admin' => 'bg-purple-100 text-purple-800',
                                             'teacher' => 'bg-blue-100 text-blue-800',
                                             'parent' => 'bg-green-100 text-green-800',
@@ -499,15 +519,45 @@ new #[Title('Create User')] class extends Component {
                                     @endforeach
                                 </div>
                             @else
-                                <span class="text-gray-500">No roles selected</span>
+                                <span class="text-xs text-gray-500 sm:text-sm">No roles selected</span>
                             @endif
                         </div>
                     </div>
                 </div>
             </x-card>
 
-            <!-- Help Card -->
-            <x-card title="Help & Information">
+            <!-- Collapsible Help Section on Mobile -->
+            <div class="lg:hidden">
+                <details class="group">
+                    <summary class="flex items-center justify-between p-4 font-medium text-gray-900 border border-gray-200 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                        <span>Help & Information</span>
+                        <svg class="w-5 h-5 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </summary>
+                    <div class="p-4 mt-2 bg-white border border-gray-200 rounded-lg">
+                        <div class="space-y-3 text-sm">
+                            <div>
+                                <div class="font-semibold">Password Requirements</div>
+                                <p class="text-gray-600">Password must be at least 8 characters long and should contain a mix of letters, numbers, and special characters.</p>
+                            </div>
+
+                            <div>
+                                <div class="font-semibold">User Roles</div>
+                                <ul class="mt-2 space-y-1 text-gray-600">
+                                    <li><strong>Admin:</strong> Full system access</li>
+                                    <li><strong>Teacher:</strong> Manage classes and students</li>
+                                    <li><strong>Parent:</strong> View children's progress</li>
+                                    <li><strong>Student:</strong> Access learning materials</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+            </div>
+
+            <!-- Desktop Help Card (hidden on mobile) -->
+            <x-card title="Help & Information" class="hidden lg:block">
                 <div class="space-y-4 text-sm">
                     <div>
                         <div class="font-semibold">Password Requirements</div>
@@ -516,7 +566,7 @@ new #[Title('Create User')] class extends Component {
 
                     <div>
                         <div class="font-semibold">User Roles</div>
-                        <ul class="text-gray-600 space-y-1 mt-2">
+                        <ul class="mt-2 space-y-1 text-gray-600">
                             <li><strong>Admin:</strong> Full system access</li>
                             <li><strong>Teacher:</strong> Manage classes and students</li>
                             <li><strong>Parent:</strong> View children's progress</li>
@@ -526,7 +576,7 @@ new #[Title('Create User')] class extends Component {
 
                     <div>
                         <div class="font-semibold">User Status</div>
-                        <ul class="text-gray-600 space-y-1 mt-2">
+                        <ul class="mt-2 space-y-1 text-gray-600">
                             <li><strong>Active:</strong> User can log in and use the system</li>
                             <li><strong>Inactive:</strong> User account is disabled</li>
                             <li><strong>Suspended:</strong> User is temporarily blocked</li>
@@ -540,26 +590,68 @@ new #[Title('Create User')] class extends Component {
                 </div>
             </x-card>
 
-            <!-- Security Notice -->
+            <!-- Responsive Security Notice -->
             <x-card title="Security Notice" class="border-yellow-200 bg-yellow-50">
                 <div class="space-y-2 text-sm">
                     <div class="flex items-start">
-                        <x-icon name="o-exclamation-triangle" class="w-5 h-5 text-yellow-600 mr-2 mt-0.5" />
-                        <div>
+                        <x-icon name="o-exclamation-triangle" class="flex-shrink-0 w-4 h-4 mt-0.5 mr-2 text-yellow-600 sm:w-5 sm:h-5" />
+                        <div class="min-w-0">
                             <div class="font-semibold text-yellow-800">Password Security</div>
                             <p class="text-yellow-700">Make sure to use a strong password. Consider using a password manager to generate secure passwords.</p>
                         </div>
                     </div>
 
                     <div class="flex items-start">
-                        <x-icon name="o-shield-check" class="w-5 h-5 text-yellow-600 mr-2 mt-0.5" />
-                        <div>
+                        <x-icon name="o-shield-check" class="flex-shrink-0 w-4 h-4 mt-0.5 mr-2 text-yellow-600 sm:w-5 sm:h-5" />
+                        <div class="min-w-0">
                             <div class="font-semibold text-yellow-800">Role Assignment</div>
                             <p class="text-yellow-700">Only assign the minimum roles necessary for the user to perform their duties.</p>
                         </div>
                     </div>
                 </div>
             </x-card>
+
+            <!-- Mobile Quick Actions (shown only on small screens) -->
+            <div class="p-4 border border-blue-200 rounded-lg bg-blue-50 lg:hidden">
+                <div class="flex items-center mb-2">
+                    <x-icon name="o-light-bulb" class="w-5 h-5 mr-2 text-blue-600" />
+                    <span class="font-semibold text-blue-800">Quick Tip</span>
+                </div>
+                <p class="text-sm text-blue-700">
+                    Preview updates as you type! The user preview card shows how the user will appear in the system.
+                </p>
+            </div>
         </div>
     </div>
+
+    <!-- Mobile-only floating action buttons -->
+    <div class="fixed bottom-4 right-4 lg:hidden">
+        <div class="flex flex-col gap-2">
+            <button
+                type="button"
+                onclick="document.querySelector('form').dispatchEvent(new Event('submit', {cancelable: true, bubbles: true}))"
+                class="flex items-center justify-center text-white transition-colors duration-200 bg-blue-600 rounded-full shadow-lg w-14 h-14 hover:bg-blue-700"
+                title="Create User"
+            >
+                <x-icon name="o-user-plus" class="w-6 h-6" />
+            </button>
+        </div>
+    </div>
+
+    <!-- Mobile form validation summary (shown when there are errors) -->
+    @if($errors->any())
+        <div class="fixed bottom-20 left-4 right-4 lg:hidden">
+            <div class="p-3 border border-red-200 rounded-lg shadow-lg bg-red-50">
+                <div class="flex items-center mb-2">
+                    <x-icon name="o-exclamation-circle" class="w-5 h-5 mr-2 text-red-600" />
+                    <span class="font-semibold text-red-800">Please fix the following errors:</span>
+                </div>
+                <ul class="text-sm text-red-700 list-disc list-inside">
+                    @foreach($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        </div>
+    @endif
 </div>

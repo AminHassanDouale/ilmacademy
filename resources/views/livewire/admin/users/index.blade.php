@@ -325,11 +325,17 @@ new #[Title('Users Management')] class extends Component {
 };?>
 
 <div>
-    <!-- Page header -->
+    <!-- Mobile-first responsive page header -->
     <x-header title="Users Management" subtitle="Manage system users and their permissions" separator progress-indicator>
         <!-- SEARCH -->
         <x-slot:middle class="!justify-end">
-            <x-input placeholder="Search users..." wire:model.live.debounce="search" icon="o-magnifying-glass" clearable />
+            <x-input
+                placeholder="Search users..."
+                wire:model.live.debounce="search"
+                icon="o-magnifying-glass"
+                clearable
+                class="w-full sm:w-64 lg:w-80"
+            />
         </x-slot:middle>
 
         <!-- ACTIONS -->
@@ -341,128 +347,130 @@ new #[Title('Users Management')] class extends Component {
                 badge-classes="font-mono"
                 @click="$wire.showFilters = true"
                 class="bg-base-300"
-                responsive />
+                responsive
+            />
 
             <x-button
                 label="Create User"
                 icon="o-plus"
                 wire:click="redirectToCreate"
                 class="btn-primary"
-                responsive />
+                responsive
+            />
         </x-slot:actions>
     </x-header>
 
-    <!-- Stats Cards -->
-    <div class="grid grid-cols-1 gap-6 mb-8 md:grid-cols-2 lg:grid-cols-4">
-        <x-card>
-            <div class="p-6">
+    <!-- Responsive Stats Cards -->
+    <div class="grid grid-cols-1 gap-4 mb-6 sm:grid-cols-2 lg:grid-cols-4 sm:gap-6 sm:mb-8">
+        <x-card class="transition-all duration-300 hover:shadow-lg">
+            <div class="p-4 sm:p-6">
                 <div class="flex items-center">
-                    <div class="p-3 mr-4 bg-blue-100 rounded-full">
-                        <x-icon name="o-users" class="w-8 h-8 text-blue-600" />
+                    <div class="p-2 mr-3 bg-blue-100 rounded-full sm:p-3 sm:mr-4">
+                        <x-icon name="o-users" class="w-6 h-6 text-blue-600 sm:w-8 sm:h-8" />
                     </div>
-                    <div>
-                        <div class="text-2xl font-bold text-blue-600">{{ number_format($stats['total_users']) }}</div>
-                        <div class="text-sm text-gray-500">Total Users</div>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-xl font-bold text-blue-600 sm:text-2xl">{{ number_format($stats['total_users']) }}</div>
+                        <div class="text-xs text-gray-500 sm:text-sm">Total Users</div>
                     </div>
                 </div>
             </div>
         </x-card>
 
-        <x-card>
-            <div class="p-6">
+        <x-card class="transition-all duration-300 hover:shadow-lg">
+            <div class="p-4 sm:p-6">
                 <div class="flex items-center">
-                    <div class="p-3 mr-4 bg-green-100 rounded-full">
-                        <x-icon name="o-check-circle" class="w-8 h-8 text-green-600" />
+                    <div class="p-2 mr-3 bg-green-100 rounded-full sm:p-3 sm:mr-4">
+                        <x-icon name="o-check-circle" class="w-6 h-6 text-green-600 sm:w-8 sm:h-8" />
                     </div>
-                    <div>
-                        <div class="text-2xl font-bold text-green-600">{{ number_format($stats['active_users']) }}</div>
-                        <div class="text-sm text-gray-500">Active Users</div>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-xl font-bold text-green-600 sm:text-2xl">{{ number_format($stats['active_users']) }}</div>
+                        <div class="text-xs text-gray-500 sm:text-sm">Active Users</div>
                     </div>
                 </div>
             </div>
         </x-card>
 
-        <x-card>
-            <div class="p-6">
+        <x-card class="transition-all duration-300 hover:shadow-lg">
+            <div class="p-4 sm:p-6">
                 <div class="flex items-center">
-                    <div class="p-3 mr-4 bg-orange-100 rounded-full">
-                        <x-icon name="o-user-plus" class="w-8 h-8 text-orange-600" />
+                    <div class="p-2 mr-3 bg-orange-100 rounded-full sm:p-3 sm:mr-4">
+                        <x-icon name="o-user-plus" class="w-6 h-6 text-orange-600 sm:w-8 sm:h-8" />
                     </div>
-                    <div>
-                        <div class="text-2xl font-bold text-orange-600">{{ number_format($stats['recent_users']) }}</div>
-                        <div class="text-sm text-gray-500">New (30 days)</div>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-xl font-bold text-orange-600 sm:text-2xl">{{ number_format($stats['recent_users']) }}</div>
+                        <div class="text-xs text-gray-500 sm:text-sm">New (30 days)</div>
                     </div>
                 </div>
             </div>
         </x-card>
 
-        <x-card>
-            <div class="p-6">
+        <x-card class="transition-all duration-300 hover:shadow-lg">
+            <div class="p-4 sm:p-6">
                 <div class="flex items-center">
-                    <div class="p-3 mr-4 bg-red-100 rounded-full">
-                        <x-icon name="o-x-circle" class="w-8 h-8 text-red-600" />
+                    <div class="p-2 mr-3 bg-red-100 rounded-full sm:p-3 sm:mr-4">
+                        <x-icon name="o-x-circle" class="w-6 h-6 text-red-600 sm:w-8 sm:h-8" />
                     </div>
-                    <div>
-                        <div class="text-2xl font-bold text-red-600">{{ number_format($stats['suspended_users']) }}</div>
-                        <div class="text-sm text-gray-500">Suspended</div>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-xl font-bold text-red-600 sm:text-2xl">{{ number_format($stats['suspended_users']) }}</div>
+                        <div class="text-xs text-gray-500 sm:text-sm">Suspended</div>
                     </div>
                 </div>
             </div>
         </x-card>
     </div>
 
-    <!-- Role Distribution Cards -->
-    <div class="grid grid-cols-1 gap-4 mb-8 md:grid-cols-4">
-        <x-card class="border-purple-200 bg-purple-50">
-            <div class="p-4 text-center">
-                <div class="text-2xl font-bold text-purple-600">{{ number_format($stats['admin_count']) }}</div>
-                <div class="text-sm text-purple-600">Admins</div>
+    <!-- Responsive Role Distribution Cards -->
+    <div class="grid grid-cols-2 gap-3 mb-6 sm:grid-cols-4 sm:gap-4 sm:mb-8">
+        <x-card class="transition-all duration-300 border-purple-200 bg-purple-50 hover:shadow-lg">
+            <div class="p-3 text-center sm:p-4">
+                <div class="text-lg font-bold text-purple-600 sm:text-2xl">{{ number_format($stats['admin_count']) }}</div>
+                <div class="text-xs text-purple-600 sm:text-sm">Admins</div>
             </div>
         </x-card>
 
-        <x-card class="border-blue-200 bg-blue-50">
-            <div class="p-4 text-center">
-                <div class="text-2xl font-bold text-blue-600">{{ number_format($stats['teacher_count']) }}</div>
-                <div class="text-sm text-blue-600">Teachers</div>
+        <x-card class="transition-all duration-300 border-blue-200 bg-blue-50 hover:shadow-lg">
+            <div class="p-3 text-center sm:p-4">
+                <div class="text-lg font-bold text-blue-600 sm:text-2xl">{{ number_format($stats['teacher_count']) }}</div>
+                <div class="text-xs text-blue-600 sm:text-sm">Teachers</div>
             </div>
         </x-card>
 
-        <x-card class="border-green-200 bg-green-50">
-            <div class="p-4 text-center">
-                <div class="text-2xl font-bold text-green-600">{{ number_format($stats['parent_count']) }}</div>
-                <div class="text-sm text-green-600">Parents</div>
+        <x-card class="transition-all duration-300 border-green-200 bg-green-50 hover:shadow-lg">
+            <div class="p-3 text-center sm:p-4">
+                <div class="text-lg font-bold text-green-600 sm:text-2xl">{{ number_format($stats['parent_count']) }}</div>
+                <div class="text-xs text-green-600 sm:text-sm">Parents</div>
             </div>
         </x-card>
 
-        <x-card class="border-orange-200 bg-orange-50">
-            <div class="p-4 text-center">
-                <div class="text-2xl font-bold text-orange-600">{{ number_format($stats['student_count']) }}</div>
-                <div class="text-sm text-orange-600">Students</div>
+        <x-card class="transition-all duration-300 border-orange-200 bg-orange-50 hover:shadow-lg">
+            <div class="p-3 text-center sm:p-4">
+                <div class="text-lg font-bold text-orange-600 sm:text-2xl">{{ number_format($stats['student_count']) }}</div>
+                <div class="text-xs text-orange-600 sm:text-sm">Students</div>
             </div>
         </x-card>
     </div>
 
-    <!-- Bulk Actions -->
+    <!-- Responsive Bulk Actions -->
     @if(count($selectedUsers) > 0)
-        <x-card class="mb-6">
-            <div class="p-4 bg-blue-50">
-                <div class="flex items-center justify-between">
+        <x-card class="mb-4 sm:mb-6">
+            <div class="p-3 bg-blue-50 sm:p-4">
+                <div class="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-0">
                     <span class="text-sm font-medium text-blue-800">
                         {{ count($selectedUsers) }} user(s) selected
                     </span>
-                    <div class="flex gap-2">
+                    <div class="flex w-full gap-2 sm:w-auto">
                         <x-button
                             label="Activate"
                             icon="o-check"
                             wire:click="bulkActivate"
-                            class="btn-sm btn-success"
+                            class="flex-1 btn-sm btn-success sm:flex-none"
                             wire:confirm="Are you sure you want to activate the selected users?"
                         />
                         <x-button
                             label="Deactivate"
                             icon="o-x-mark"
                             wire:click="bulkDeactivate"
-                            class="btn-sm btn-error"
+                            class="flex-1 btn-sm btn-error sm:flex-none"
                             wire:confirm="Are you sure you want to deactivate the selected users?"
                         />
                     </div>
@@ -471,13 +479,141 @@ new #[Title('Users Management')] class extends Component {
         </x-card>
     @endif
 
-    <!-- Users Table -->
-    <x-card>
+    <!-- Mobile Card View (shown on small screens) -->
+    <div class="block mb-6 space-y-4 lg:hidden">
+        @forelse($users as $user)
+            <x-card class="transition-all duration-300 hover:shadow-lg">
+                <div class="p-4">
+                    <!-- User Info Header -->
+                    <div class="flex items-start justify-between mb-3">
+                        <div class="flex items-center flex-1 min-w-0">
+                            <x-checkbox wire:model.live="selectedUsers" value="{{ $user->id }}" class="mr-3" />
+                            <div class="avatar">
+                                <div class="w-12 h-12 rounded-full">
+                                    <img src="{{ $user->profile_photo_url }}" alt="{{ $user->name }}" />
+                                </div>
+                            </div>
+                            <div class="flex-1 min-w-0 ml-3">
+                                <button wire:click="redirectToShow({{ $user->id }})" class="font-semibold text-left text-blue-600 underline hover:text-blue-800">
+                                    {{ $user->name }}
+                                </button>
+                                @if($user->id === Auth::id())
+                                    <div class="text-xs text-blue-500">(You)</div>
+                                @endif
+                                <div class="font-mono text-sm text-gray-600 truncate">{{ $user->email }}</div>
+                            </div>
+                        </div>
+                        <div class="flex gap-1 ml-2">
+                            <button
+                                wire:click="redirectToShow({{ $user->id }})"
+                                class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
+                                title="View"
+                            >
+                                👁️
+                            </button>
+                            <button
+                                wire:click="redirectToEdit({{ $user->id }})"
+                                class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
+                                title="Edit"
+                            >
+                                ✏️
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- User Details -->
+                    <div class="space-y-2">
+                        <!-- Status and Verification -->
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium {{ $this->getStatusColor($user->status) }}">
+                                    {{ ucfirst($user->status) }}
+                                </span>
+                                @if($user->email_verified_at)
+                                    <span class="text-xs text-green-600">✓ Verified</span>
+                                @else
+                                    <span class="text-xs text-red-600">✗ Not verified</span>
+                                @endif
+                            </div>
+                            @if($user->phone)
+                                <div class="font-mono text-sm text-gray-600">{{ $user->phone }}</div>
+                            @endif
+                        </div>
+
+                        <!-- Roles -->
+                        <div>
+                            <div class="mb-1 text-xs text-gray-500">Roles:</div>
+                            <div class="flex flex-wrap gap-1">
+                                @forelse($user->roles as $role)
+                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium {{ $this->getRoleColor($role->name) }}">
+                                        {{ ucfirst($role->name) }}
+                                    </span>
+                                @empty
+                                    <span class="text-xs text-gray-500">No roles</span>
+                                @endforelse
+                            </div>
+                        </div>
+
+                        <!-- Last Login and Created -->
+                        <div class="flex justify-between pt-2 text-xs text-gray-500 border-t">
+                            <div>
+                                Last login:
+                                @if($user->last_login_at)
+                                    {{ $user->last_login_at->format('M d, Y g:i A') }}
+                                @else
+                                    Never
+                                @endif
+                            </div>
+                            <div>
+                                Created: {{ $user->created_at->format('M d, Y') }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </x-card>
+        @empty
+            <x-card>
+                <div class="py-12 text-center">
+                    <div class="flex flex-col items-center justify-center gap-4">
+                        <x-icon name="o-users" class="w-16 h-16 text-gray-300" />
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-600">No users found</h3>
+                            <p class="mt-1 text-gray-500">
+                                @if($search || $roleFilter || $statusFilter)
+                                    No users match your current filters.
+                                @else
+                                    Get started by creating your first user.
+                                @endif
+                            </p>
+                        </div>
+                        @if($search || $roleFilter || $statusFilter)
+                            <x-button
+                                label="Clear Filters"
+                                wire:click="resetFilters"
+                                color="secondary"
+                                size="sm"
+                            />
+                        @else
+                            <x-button
+                                label="Create First User"
+                                icon="o-plus"
+                                wire:click="redirectToCreate"
+                                color="primary"
+                            />
+                        @endif
+                    </div>
+                </div>
+            </x-card>
+        @endforelse
+    </div>
+
+    <!-- Desktop Table View (hidden on small screens) -->
+    <x-card class="hidden lg:block">
         <div class="overflow-x-auto">
             <table class="table w-full table-zebra">
                 <thead>
                     <tr>
-                        <th>
+                        <th class="w-12">
                             <x-checkbox wire:model.live="selectAll" />
                         </th>
                         <th class="cursor-pointer" wire:click="sortBy('name')">
@@ -497,7 +633,7 @@ new #[Title('Users Management')] class extends Component {
                             </div>
                         </th>
                         <th>Roles</th>
-                        <th>Phone</th>
+                        <th class="hidden xl:table-cell">Phone</th>
                         <th class="cursor-pointer" wire:click="sortBy('status')">
                             <div class="flex items-center">
                                 Status
@@ -506,7 +642,7 @@ new #[Title('Users Management')] class extends Component {
                                 @endif
                             </div>
                         </th>
-                        <th class="cursor-pointer" wire:click="sortBy('last_login_at')">
+                        <th class="hidden cursor-pointer xl:table-cell" wire:click="sortBy('last_login_at')">
                             <div class="flex items-center">
                                 Last Login
                                 @if ($sortBy['column'] === 'last_login_at')
@@ -514,7 +650,7 @@ new #[Title('Users Management')] class extends Component {
                                 @endif
                             </div>
                         </th>
-                        <th class="cursor-pointer" wire:click="sortBy('created_at')">
+                        <th class="hidden cursor-pointer 2xl:table-cell" wire:click="sortBy('created_at')">
                             <div class="flex items-center">
                                 Created
                                 @if ($sortBy['column'] === 'created_at')
@@ -522,7 +658,7 @@ new #[Title('Users Management')] class extends Component {
                                 @endif
                             </div>
                         </th>
-                        <th class="text-right">Actions</th>
+                        <th class="w-24 text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -567,7 +703,7 @@ new #[Title('Users Management')] class extends Component {
                                     @endforelse
                                 </div>
                             </td>
-                            <td>
+                            <td class="hidden xl:table-cell">
                                 <div class="font-mono text-sm">{{ $user->phone ?: '-' }}</div>
                             </td>
                             <td>
@@ -575,7 +711,7 @@ new #[Title('Users Management')] class extends Component {
                                     {{ ucfirst($user->status) }}
                                 </span>
                             </td>
-                            <td>
+                            <td class="hidden xl:table-cell">
                                 @if($user->last_login_at)
                                     <div class="text-sm">{{ $user->last_login_at->format('M d, Y') }}</div>
                                     <div class="text-xs text-gray-500">{{ $user->last_login_at->format('g:i A') }}</div>
@@ -583,7 +719,7 @@ new #[Title('Users Management')] class extends Component {
                                     <span class="text-gray-500">Never</span>
                                 @endif
                             </td>
-                            <td>
+                            <td class="hidden 2xl:table-cell">
                                 <div class="text-sm">{{ $user->created_at->format('M d, Y') }}</div>
                                 <div class="text-xs text-gray-500">{{ $user->created_at->diffForHumans() }}</div>
                             </td>
@@ -661,7 +797,23 @@ new #[Title('Users Management')] class extends Component {
         @endif
     </x-card>
 
-    <!-- Filters drawer -->
+    <!-- Mobile/Tablet Pagination (shown when using card view) -->
+    <div class="mt-4 lg:hidden">
+        {{ $users->links() }}
+    </div>
+
+    <!-- Mobile Results Summary -->
+    @if($users->count() > 0)
+    <div class="pt-3 mt-4 text-sm text-center text-gray-600 border-t lg:hidden">
+        Showing {{ $users->firstItem() ?? 0 }} to {{ $users->lastItem() ?? 0 }}
+        of {{ $users->total() }} users
+        @if($search || $roleFilter || $statusFilter)
+            (filtered)
+        @endif
+    </div>
+    @endif
+
+    <!-- Responsive Filters drawer -->
     <x-drawer wire:model="showFilters" title="Advanced Filters" position="right" class="p-4">
         <div class="flex flex-col gap-4 mb-4">
             <div>
@@ -713,8 +865,8 @@ new #[Title('Users Management')] class extends Component {
         </div>
 
         <x-slot:actions>
-            <x-button label="Reset" icon="o-x-mark" wire:click="resetFilters" />
-            <x-button label="Apply" icon="o-check" wire:click="$set('showFilters', false)" color="primary" />
+            <x-button label="Reset" icon="o-x-mark" wire:click="resetFilters" class="w-full sm:w-auto" />
+            <x-button label="Apply" icon="o-check" wire:click="$set('showFilters', false)" color="primary" class="w-full sm:w-auto" />
         </x-slot:actions>
     </x-drawer>
 </div>

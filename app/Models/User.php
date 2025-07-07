@@ -184,4 +184,40 @@ class User extends Authenticatable
             get: fn () => 'https://ui-avatars.com/api/?name=' . urlencode($this->name) . '&color=7F9CF5&background=EBF4FF'
         );
     }
+    /**
+     * Get custom notifications (if using custom notification model)
+     */
+    public function customNotifications()
+    {
+        return $this->hasMany(Notification::class);
+    }
+
+    /**
+     * Get unread custom notifications count
+     */
+    public function getUnreadNotificationsCountAttribute()
+    {
+        return $this->customNotifications()->whereNull('read_at')->count();
+    }
+
+    /**
+     * Mark a custom notification as read
+     */
+    public function markNotificationAsRead($notificationId)
+    {
+        return $this->customNotifications()
+            ->where('id', $notificationId)
+            ->update(['read_at' => now()]);
+    }
+
+    /**
+     * Mark all custom notifications as read
+     */
+    public function markAllNotificationsAsRead()
+    {
+        return $this->customNotifications()
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+    }
+
 }

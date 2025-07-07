@@ -308,58 +308,58 @@ new #[Title('Invoices Management')] class extends Component {
     </x-header>
 
     <!-- Stats Cards -->
-    <div class="grid grid-cols-1 gap-6 mb-8 md:grid-cols-2 lg:grid-cols-4">
+    <div class="grid grid-cols-2 gap-4 mb-6 lg:grid-cols-4 lg:gap-6 lg:mb-8">
         <x-card>
-            <div class="p-6">
+            <div class="p-4 lg:p-6">
                 <div class="flex items-center">
-                    <div class="p-3 mr-4 bg-blue-100 rounded-full">
-                        <x-icon name="o-document-text" class="w-8 h-8 text-blue-600" />
+                    <div class="p-2 mr-3 bg-blue-100 rounded-full lg:p-3 lg:mr-4">
+                        <x-icon name="o-document-text" class="w-6 h-6 text-blue-600 lg:w-8 lg:h-8" />
                     </div>
-                    <div>
-                        <div class="text-2xl font-bold text-blue-600">{{ number_format($stats['total_invoices']) }}</div>
-                        <div class="text-sm text-gray-500">Total Invoices</div>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-lg font-bold text-blue-600 truncate lg:text-2xl">{{ number_format($stats['total_invoices']) }}</div>
+                        <div class="text-xs text-gray-500 lg:text-sm">Total Invoices</div>
                     </div>
                 </div>
             </div>
         </x-card>
 
         <x-card>
-            <div class="p-6">
+            <div class="p-4 lg:p-6">
                 <div class="flex items-center">
-                    <div class="p-3 mr-4 bg-green-100 rounded-full">
-                        <x-icon name="o-currency-dollar" class="w-8 h-8 text-green-600" />
+                    <div class="p-2 mr-3 bg-green-100 rounded-full lg:p-3 lg:mr-4">
+                        <x-icon name="o-currency-dollar" class="w-6 h-6 text-green-600 lg:w-8 lg:h-8" />
                     </div>
-                    <div>
-                        <div class="text-2xl font-bold text-green-600">${{ number_format($stats['total_amount'], 2) }}</div>
-                        <div class="text-sm text-gray-500">Total Amount</div>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-lg font-bold text-green-600 truncate lg:text-2xl">${{ number_format($stats['total_amount'], 2) }}</div>
+                        <div class="text-xs text-gray-500 lg:text-sm">Total Amount</div>
                     </div>
                 </div>
             </div>
         </x-card>
 
         <x-card>
-            <div class="p-6">
+            <div class="p-4 lg:p-6">
                 <div class="flex items-center">
-                    <div class="p-3 mr-4 bg-purple-100 rounded-full">
-                        <x-icon name="o-check-circle" class="w-8 h-8 text-purple-600" />
+                    <div class="p-2 mr-3 bg-purple-100 rounded-full lg:p-3 lg:mr-4">
+                        <x-icon name="o-check-circle" class="w-6 h-6 text-purple-600 lg:w-8 lg:h-8" />
                     </div>
-                    <div>
-                        <div class="text-2xl font-bold text-purple-600">{{ $stats['collection_rate'] }}%</div>
-                        <div class="text-sm text-gray-500">Collection Rate</div>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-lg font-bold text-purple-600 truncate lg:text-2xl">{{ $stats['collection_rate'] }}%</div>
+                        <div class="text-xs text-gray-500 lg:text-sm">Collection Rate</div>
                     </div>
                 </div>
             </div>
         </x-card>
 
         <x-card>
-            <div class="p-6">
+            <div class="p-4 lg:p-6">
                 <div class="flex items-center">
-                    <div class="p-3 mr-4 bg-red-100 rounded-full">
-                        <x-icon name="o-exclamation-triangle" class="w-8 h-8 text-red-600" />
+                    <div class="p-2 mr-3 bg-red-100 rounded-full lg:p-3 lg:mr-4">
+                        <x-icon name="o-exclamation-triangle" class="w-6 h-6 text-red-600 lg:w-8 lg:h-8" />
                     </div>
-                    <div>
-                        <div class="text-2xl font-bold text-red-600">{{ $stats['overdue_count'] }}</div>
-                        <div class="text-sm text-gray-500">Overdue</div>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-lg font-bold text-red-600 truncate lg:text-2xl">{{ $stats['overdue_count'] }}</div>
+                        <div class="text-xs text-gray-500 lg:text-sm">Overdue</div>
                     </div>
                 </div>
             </div>
@@ -370,7 +370,7 @@ new #[Title('Invoices Management')] class extends Component {
     @if(count($selectedInvoices) > 0)
         <x-card class="mb-6">
             <div class="p-4 bg-blue-50">
-                <div class="flex items-center justify-between">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <span class="text-sm font-medium text-blue-800">
                         {{ count($selectedInvoices) }} invoice(s) selected
                     </span>
@@ -379,13 +379,13 @@ new #[Title('Invoices Management')] class extends Component {
                             label="Mark as Sent"
                             icon="o-paper-airplane"
                             wire:click="bulkMarkAsSent"
-                            class="btn-sm btn-primary"
+                            class="flex-1 btn-sm btn-primary sm:flex-none"
                         />
                         <x-button
                             label="Mark as Paid"
                             icon="o-check"
                             wire:click="bulkMarkAsPaid"
-                            class="btn-sm btn-success"
+                            class="flex-1 btn-sm btn-success sm:flex-none"
                         />
                     </div>
                 </div>
@@ -393,149 +393,282 @@ new #[Title('Invoices Management')] class extends Component {
         </x-card>
     @endif
 
-    <!-- Invoices Table -->
+    <!-- Invoices -->
     <x-card>
-        <div class="overflow-x-auto">
-            <table class="table w-full table-zebra">
-                <thead>
-                    <tr>
-                        <th>
-                            <x-checkbox wire:model.live="selectAll" />
-                        </th>
-                        <th class="cursor-pointer" wire:click="sortBy('invoice_number')">
-                            <div class="flex items-center">
-                                Invoice #
-                                @if ($sortBy['column'] === 'invoice_number')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th>Student</th>
-                        <th class="cursor-pointer" wire:click="sortBy('amount')">
-                            <div class="flex items-center">
-                                Amount
-                                @if ($sortBy['column'] === 'amount')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th class="cursor-pointer" wire:click="sortBy('due_date')">
-                            <div class="flex items-center">
-                                Due Date
-                                @if ($sortBy['column'] === 'due_date')
-                                    <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
-                                @endif
-                            </div>
-                        </th>
-                        <th>Status</th>
-                        <th>Academic Year</th>
-                        <th class="text-right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse($invoices as $invoice)
-                        <tr class="hover">
-                            <td>
+        <!-- Mobile/Tablet Card View (hidden on desktop) -->
+        <div class="block lg:hidden">
+            <div class="divide-y divide-gray-200">
+                @forelse($invoices as $invoice)
+                    <div class="p-4 transition-colors hover:bg-gray-50">
+                        <!-- Invoice Header -->
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="flex items-center flex-1 min-w-0 space-x-3">
                                 <x-checkbox wire:model.live="selectedInvoices" value="{{ $invoice->id }}" />
-                            </td>
-                            <td>
-                                <button wire:click="redirectToShow({{ $invoice->id }})" class="font-mono font-semibold text-blue-600 hover:text-blue-800 underline">
-                                    {{ $invoice->invoice_number }}
-                                </button>
-                            </td>
-                            <td>
-                                @if($invoice->student)
-                                    <div>
-                                        <div class="font-medium">{{ $invoice->student->full_name }}</div>
-                                        @if($invoice->curriculum)
-                                            <div class="text-sm text-gray-500">{{ $invoice->curriculum->name }}</div>
+                                <div class="flex-1 min-w-0">
+                                    <button wire:click="redirectToShow({{ $invoice->id }})" class="text-left">
+                                        <div class="font-mono font-semibold text-blue-600 underline hover:text-blue-800">
+                                            {{ $invoice->invoice_number }}
+                                        </div>
+                                        @if($invoice->student)
+                                            <div class="font-medium text-gray-900 truncate">{{ $invoice->student->full_name }}</div>
+                                            @if($invoice->curriculum)
+                                                <div class="text-sm text-gray-500 truncate">{{ $invoice->curriculum->name }}</div>
+                                            @endif
+                                        @else
+                                            <div class="text-gray-500">Unknown Student</div>
                                         @endif
-                                    </div>
-                                @else
-                                    <span class="text-gray-500">Unknown Student</span>
-                                @endif
-                            </td>
-                            <td class="font-mono font-bold">${{ number_format($invoice->amount, 2) }}</td>
-                            <td>
-                                <div class="{{ $invoice->due_date < now() && !in_array($invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_CANCELLED]) ? 'text-red-600 font-medium' : '' }}">
-                                    {{ $invoice->due_date->format('M d, Y') }}
-                                    @if($invoice->due_date < now() && !in_array($invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_CANCELLED]))
-                                        <div class="text-xs text-red-500">Overdue</div>
-                                    @endif
+                                    </button>
                                 </div>
-                            </td>
-                            <td class="py-2">
+                            </div>
+                            <!-- Status Badge -->
+                            <div class="ml-3">
                                 <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $this->getStatusColor($invoice->status) }}">
                                     {{ ucfirst(str_replace('_', ' ', $invoice->status)) }}
                                 </span>
-                            </td>
-                            <td>
+                            </div>
+                        </div>
+
+                        <!-- Amount - Prominent Display -->
+                        <div class="p-3 mb-4 border border-green-200 rounded-lg bg-green-50">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <label class="block mb-1 text-xs font-medium tracking-wide text-green-700 uppercase">Invoice Amount</label>
+                                    <div class="font-mono text-2xl font-bold text-green-900">
+                                        ${{ number_format($invoice->amount, 2) }}
+                                    </div>
+                                </div>
+                                <div class="text-green-600">
+                                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"></path>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Due Date & Academic Year -->
+                        <div class="grid grid-cols-1 gap-3 mb-4 sm:grid-cols-2">
+                            <div>
+                                <label class="block mb-1 text-xs font-medium tracking-wide text-gray-500 uppercase">Due Date</label>
+                                <div class="{{ $invoice->due_date < now() && !in_array($invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_CANCELLED]) ? 'text-red-600 font-medium' : 'text-gray-900' }}">
+                                    {{ $invoice->due_date->format('M d, Y') }}
+                                    @if($invoice->due_date < now() && !in_array($invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_CANCELLED]))
+                                        <div class="mt-1 text-xs text-red-500">⚠️ Overdue</div>
+                                    @endif
+                                </div>
+                                <div class="mt-1 text-xs text-gray-500">{{ $invoice->due_date->diffForHumans() }}</div>
+                            </div>
+                            <div>
+                                <label class="block mb-1 text-xs font-medium tracking-wide text-gray-500 uppercase">Academic Year</label>
                                 @if($invoice->academicYear)
-                                    <div class="font-medium">{{ $invoice->academicYear->name }}</div>
+                                    <div class="font-medium text-gray-900">{{ $invoice->academicYear->name }}</div>
                                     @if($invoice->academicYear->is_current)
-                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mt-1">
-                                            Current
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mt-1">
+                                            ✅ Current
                                         </span>
                                     @endif
                                 @else
                                     <span class="text-gray-500">Unknown</span>
                                 @endif
-                            </td>
-                            <td class="text-right">
-                                <div class="flex justify-end gap-2">
-                                    <button
-                                        wire:click="redirectToShow({{ $invoice->id }})"
-                                        class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
-                                        title="View"
-                                    >
-                                        👁️
-                                    </button>
-                                    <button
-                                        wire:click="redirectToEdit({{ $invoice->id }})"
-                                        class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
-                                        title="Edit"
-                                    >
-                                        ✏️
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="8" class="py-12 text-center">
-                                <div class="flex flex-col items-center justify-center gap-4">
-                                    <x-icon name="o-document-text" class="w-20 h-20 text-gray-300" />
-                                    <div>
-                                        <h3 class="text-lg font-semibold text-gray-600">No invoices found</h3>
-                                        <p class="text-gray-500 mt-1">
-                                            @if($search || $statusFilter || $academicYearFilter)
-                                                No invoices match your current filters.
-                                            @else
-                                                Get started by creating your first invoice.
-                                            @endif
-                                        </p>
-                                    </div>
+                            </div>
+                        </div>
+
+                        <!-- Actions -->
+                        <div class="flex gap-2">
+                            <x-button
+                                icon="o-eye"
+                                wire:click="redirectToShow({{ $invoice->id }})"
+                                tooltip="View Details"
+                                class="flex-1 btn-sm btn-ghost"
+                                label="View"
+                            />
+                            <x-button
+                                icon="o-pencil"
+                                wire:click="redirectToEdit({{ $invoice->id }})"
+                                tooltip="Edit"
+                                class="flex-1 btn-sm btn-ghost"
+                                label="Edit"
+                            />
+                        </div>
+                    </div>
+                @empty
+                    <div class="px-6 py-12 text-center">
+                        <div class="flex flex-col items-center justify-center gap-4">
+                            <x-icon name="o-document-text" class="w-16 h-16 text-gray-300" />
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-600">No invoices found</h3>
+                                <p class="mt-1 text-sm text-gray-500">
                                     @if($search || $statusFilter || $academicYearFilter)
-                                        <x-button
-                                            label="Clear Filters"
-                                            wire:click="resetFilters"
-                                            color="secondary"
-                                            size="sm"
-                                        />
+                                        No invoices match your current filters.
                                     @else
-                                        <x-button
-                                            label="Create First Invoice"
-                                            icon="o-plus"
-                                            wire:click="redirectToCreate"
-                                            color="primary"
-                                        />
+                                        Get started by creating your first invoice.
+                                    @endif
+                                </p>
+                            </div>
+                            @if($search || $statusFilter || $academicYearFilter)
+                                <x-button
+                                    label="Clear Filters"
+                                    wire:click="resetFilters"
+                                    color="secondary"
+                                    size="sm"
+                                />
+                            @else
+                                <x-button
+                                    label="Create First Invoice"
+                                    icon="o-plus"
+                                    wire:click="redirectToCreate"
+                                    color="primary"
+                                />
+                            @endif
+                        </div>
+                    </div>
+                @endforelse
+            </div>
+        </div>
+
+        <!-- Desktop Table View (hidden on mobile/tablet) -->
+        <div class="hidden lg:block">
+            <div class="overflow-x-auto">
+                <table class="table w-full table-zebra">
+                    <thead>
+                        <tr>
+                            <th>
+                                <x-checkbox wire:model.live="selectAll" />
+                            </th>
+                            <th class="cursor-pointer" wire:click="sortBy('invoice_number')">
+                                <div class="flex items-center">
+                                    Invoice #
+                                    @if ($sortBy['column'] === 'invoice_number')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
                                     @endif
                                 </div>
-                            </td>
+                            </th>
+                            <th>Student</th>
+                            <th class="cursor-pointer" wire:click="sortBy('amount')">
+                                <div class="flex items-center">
+                                    Amount
+                                    @if ($sortBy['column'] === 'amount')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
+                                    @endif
+                                </div>
+                            </th>
+                            <th class="cursor-pointer" wire:click="sortBy('due_date')">
+                                <div class="flex items-center">
+                                    Due Date
+                                    @if ($sortBy['column'] === 'due_date')
+                                        <x-icon name="{{ $sortBy['direction'] === 'asc' ? 'o-chevron-up' : 'o-chevron-down' }}" class="w-4 h-4 ml-1" />
+                                    @endif
+                                </div>
+                            </th>
+                            <th>Status</th>
+                            <th>Academic Year</th>
+                            <th class="text-right">Actions</th>
                         </tr>
-                    @endforelse
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        @forelse($invoices as $invoice)
+                            <tr class="hover">
+                                <td>
+                                    <x-checkbox wire:model.live="selectedInvoices" value="{{ $invoice->id }}" />
+                                </td>
+                                <td>
+                                    <button wire:click="redirectToShow({{ $invoice->id }})" class="font-mono font-semibold text-blue-600 underline hover:text-blue-800">
+                                        {{ $invoice->invoice_number }}
+                                    </button>
+                                </td>
+                                <td>
+                                    @if($invoice->student)
+                                        <div>
+                                            <div class="font-medium">{{ $invoice->student->full_name }}</div>
+                                            @if($invoice->curriculum)
+                                                <div class="text-sm text-gray-500">{{ $invoice->curriculum->name }}</div>
+                                            @endif
+                                        </div>
+                                    @else
+                                        <span class="text-gray-500">Unknown Student</span>
+                                    @endif
+                                </td>
+                                <td class="font-mono font-bold">${{ number_format($invoice->amount, 2) }}</td>
+                                <td>
+                                    <div class="{{ $invoice->due_date < now() && !in_array($invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_CANCELLED]) ? 'text-red-600 font-medium' : '' }}">
+                                        {{ $invoice->due_date->format('M d, Y') }}
+                                        @if($invoice->due_date < now() && !in_array($invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_CANCELLED]))
+                                            <div class="text-xs text-red-500">Overdue</div>
+                                        @endif
+                                    </div>
+                                </td>
+                                <td class="py-2">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $this->getStatusColor($invoice->status) }}">
+                                        {{ ucfirst(str_replace('_', ' ', $invoice->status)) }}
+                                    </span>
+                                </td>
+                                <td>
+                                    @if($invoice->academicYear)
+                                        <div class="font-medium">{{ $invoice->academicYear->name }}</div>
+                                        @if($invoice->academicYear->is_current)
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mt-1">
+                                                Current
+                                            </span>
+                                        @endif
+                                    @else
+                                        <span class="text-gray-500">Unknown</span>
+                                    @endif
+                                </td>
+                                <td class="text-right">
+                                    <div class="flex justify-end gap-2">
+                                        <button
+                                            wire:click="redirectToShow({{ $invoice->id }})"
+                                            class="p-2 text-gray-600 bg-gray-100 rounded-md hover:text-gray-900 hover:bg-gray-200"
+                                            title="View"
+                                        >
+                                            👁️
+                                        </button>
+                                        <button
+                                            wire:click="redirectToEdit({{ $invoice->id }})"
+                                            class="p-2 text-blue-600 bg-blue-100 rounded-md hover:text-blue-900 hover:bg-blue-200"
+                                            title="Edit"
+                                        >
+                                            ✏️
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="8" class="py-12 text-center">
+                                    <div class="flex flex-col items-center justify-center gap-4">
+                                        <x-icon name="o-document-text" class="w-20 h-20 text-gray-300" />
+                                        <div>
+                                            <h3 class="text-lg font-semibold text-gray-600">No invoices found</h3>
+                                            <p class="mt-1 text-gray-500">
+                                                @if($search || $statusFilter || $academicYearFilter)
+                                                    No invoices match your current filters.
+                                                @else
+                                                    Get started by creating your first invoice.
+                                                @endif
+                                            </p>
+                                        </div>
+                                        @if($search || $statusFilter || $academicYearFilter)
+                                            <x-button
+                                                label="Clear Filters"
+                                                wire:click="resetFilters"
+                                                color="secondary"
+                                                size="sm"
+                                            />
+                                        @else
+                                            <x-button
+                                                label="Create First Invoice"
+                                                icon="o-plus"
+                                                wire:click="redirectToCreate"
+                                                color="primary"
+                                            />
+                                        @endif
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <!-- Pagination -->
@@ -545,12 +678,21 @@ new #[Title('Invoices Management')] class extends Component {
 
         <!-- Results summary -->
         @if($invoices->count() > 0)
-        <div class="mt-4 text-sm text-gray-600 border-t pt-3">
-            Showing {{ $invoices->firstItem() ?? 0 }} to {{ $invoices->lastItem() ?? 0 }}
-            of {{ $invoices->total() }} invoices
-            @if($search || $statusFilter || $academicYearFilter)
-                (filtered from total)
-            @endif
+        <div class="pt-3 mt-4 text-sm text-gray-600 border-t">
+            <div class="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
+                <span>
+                    Showing {{ $invoices->firstItem() ?? 0 }} to {{ $invoices->lastItem() ?? 0 }}
+                    of {{ $invoices->total() }} invoices
+                    @if($search || $statusFilter || $academicYearFilter)
+                        (filtered from total)
+                    @endif
+                </span>
+                <!-- Mobile view indicator -->
+                <div class="flex items-center gap-2 lg:hidden">
+                    <span class="text-xs text-gray-500">Card view active</span>
+                    <x-icon name="o-document-text" class="w-4 h-4 text-gray-400" />
+                </div>
+            </div>
         </div>
         @endif
     </x-card>

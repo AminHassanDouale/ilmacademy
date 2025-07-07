@@ -12,39 +12,52 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('child_profiles', function (Blueprint $table) {
-              $table->id();
+            $table->id();
+
+            // Basic Information
             $table->string('first_name');
             $table->string('last_name');
-            $table->date('date_of_birth');
-            $table->enum('gender', ['male', 'female', 'other'])->nullable();
+            $table->date('date_of_birth')->nullable();
+            $table->enum('gender', ['male', 'female', 'other', 'prefer_not_to_say'])->nullable();
+
+            // Contact Information
             $table->string('email')->nullable();
             $table->string('phone')->nullable();
             $table->text('address')->nullable();
+
+            // Emergency Contact
             $table->string('emergency_contact_name')->nullable();
             $table->string('emergency_contact_phone')->nullable();
 
-            // Foreign keys
-            $table->foreignId('parent_id')->nullable()->constrained('users')->onDelete('set null');
-            $table->foreignId('user_id')->nullable()->constrained('users')->onDelete('set null');
+            // Parent Relationships (choose one approach)
+            $table->foreignId('parent_id')->nullable()->constrained('users')->onDelete('set null'); // User ID of parent
+            $table->foreignId('parent_profile_id')->nullable()->constrained('parent_profiles')->onDelete('set null'); // Direct to ParentProfile
 
-            // Medical information
+            // Child's own user account (optional)
+            $table->foreignId('user_id')->nullable()->constrained('users')->onDelete('cascade');
+
+            // Medical Information
             $table->text('medical_conditions')->nullable();
             $table->text('allergies')->nullable();
-            $table->text('notes')->nullable();
-
-            // Additional fields that might be referenced
             $table->text('medical_information')->nullable(); // Legacy field
             $table->text('special_needs')->nullable();
             $table->text('additional_needs')->nullable();
+
+            // Additional Information
+            $table->text('notes')->nullable();
             $table->string('photo')->nullable();
 
+            // Timestamps and Soft Deletes
             $table->timestamps();
-            $table->softDeletes(); // This adds the deleted_at column
+            $table->softDeletes();
 
             // Indexes
-            $table->index(['parent_id', 'deleted_at']);
-            $table->index(['user_id', 'deleted_at']);
+            $table->index(['parent_id']);
+            $table->index(['parent_profile_id']);
+            $table->index(['user_id']);
             $table->index(['first_name', 'last_name']);
+            $table->index(['email']);
+            $table->index(['deleted_at']);
         });
     }
 

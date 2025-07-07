@@ -749,33 +749,42 @@ new #[Title('Student Reports')] class extends Component {
     }
 };?>
 
-<div>
+<div class="p-3 sm:p-6">
     <!-- Page header -->
     <x-header title="Student Reports" separator>
         <x-slot:subtitle>
-            {{ $reportTypes[$reportType] }}
-            @if($academicYearId)
-                for {{ collect($academicYears)->firstWhere('id', $academicYearId)?->name }}
-            @endif
+            <div class="text-sm sm:text-base">
+                {{ $reportTypes[$reportType] }}
+                @if($academicYearId)
+                    <span class="hidden sm:inline">for</span>
+                    <br class="sm:hidden">
+                    <span class="text-xs sm:text-sm">{{ collect($academicYears)->firstWhere('id', $academicYearId)?->name }}</span>
+                @endif
+            </div>
         </x-slot:subtitle>
 
         <x-slot:actions>
-            <div class="flex space-x-2">
+            <div class="flex flex-col gap-2 sm:flex-row sm:space-x-2 sm:gap-0">
                 <x-button
                     label="Export Report"
                     icon="o-arrow-down-tray"
                     wire:click="exportReport"
                     color="primary"
+                    class="w-full btn-sm sm:btn-md sm:w-auto"
                 />
             </div>
         </x-slot:actions>
     </x-header>
 
     <!-- Filters section -->
-    <x-card class="mb-6">
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+    <x-card class="mb-4 sm:mb-6">
+        <div class="mb-3 sm:hidden">
+            <h3 class="text-lg font-semibold">Filters</h3>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <!-- Report Type -->
-            <div>
+            <div class="sm:col-span-2 lg:col-span-1">
                 <x-select
                     label="Report Type"
                     :options="$reportTypesForSelect"
@@ -783,10 +792,11 @@ new #[Title('Student Reports')] class extends Component {
                     option-value="value"
                     wire:model.live="reportType"
                     hint="Select the type of report to generate"
+                    class="select-sm sm:select-md"
                 >
                     <x-slot:prepend>
-                        <div class="flex items-center justify-center w-10 h-10">
-                            <x-icon name="o-chart-bar" class="w-5 h-5" />
+                        <div class="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10">
+                            <x-icon name="o-chart-bar" class="w-4 h-4 sm:w-5 sm:h-5" />
                         </div>
                     </x-slot:prepend>
                 </x-select>
@@ -803,10 +813,11 @@ new #[Title('Student Reports')] class extends Component {
                     option-value="id"
                     option-description="description"
                     hint="Filter by academic year"
+                    class="select-sm sm:select-md"
                 >
                     <x-slot:prepend>
-                        <div class="flex items-center justify-center w-10 h-10">
-                            <x-icon name="o-academic-cap" class="w-5 h-5" />
+                        <div class="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10">
+                            <x-icon name="o-academic-cap" class="w-4 h-4 sm:w-5 sm:h-5" />
                         </div>
                     </x-slot:prepend>
                 </x-select>
@@ -823,17 +834,18 @@ new #[Title('Student Reports')] class extends Component {
                     option-value="id"
                     option-description="description"
                     hint="Filter by curriculum"
+                    class="select-sm sm:select-md"
                 >
                     <x-slot:prepend>
-                        <div class="flex items-center justify-center w-10 h-10">
-                            <x-icon name="o-book-open" class="w-5 h-5" />
+                        <div class="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10">
+                            <x-icon name="o-book-open" class="w-4 h-4 sm:w-5 sm:h-5" />
                         </div>
                     </x-slot:prepend>
                 </x-select>
             </div>
 
             <!-- Date Range -->
-            <div>
+            <div class="sm:col-span-2 lg:col-span-1">
                 <x-select
                     label="Date Range"
                     :options="$dateRangesForSelect"
@@ -841,10 +853,11 @@ new #[Title('Student Reports')] class extends Component {
                     option-value="value"
                     wire:model.live="dateRange"
                     hint="Select time period for the report"
+                    class="select-sm sm:select-md"
                 >
                     <x-slot:prepend>
-                        <div class="flex items-center justify-center w-10 h-10">
-                            <x-icon name="o-calendar" class="w-5 h-5" />
+                        <div class="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10">
+                            <x-icon name="o-calendar" class="w-4 h-4 sm:w-5 sm:h-5" />
                         </div>
                     </x-slot:prepend>
                 </x-select>
@@ -863,6 +876,7 @@ new #[Title('Student Reports')] class extends Component {
                         icon="o-calendar"
                         :config="$config"
                         hint="Beginning of date range"
+                        class="input-sm sm:input-md"
                     />
                 </div>
 
@@ -873,6 +887,7 @@ new #[Title('Student Reports')] class extends Component {
                         icon="o-calendar"
                         :config="$config"
                         hint="End of date range"
+                        class="input-sm sm:input-md"
                     />
                 </div>
             @endif
@@ -891,10 +906,11 @@ new #[Title('Student Reports')] class extends Component {
                     option-value="value"
                     wire:model.live="gender"
                     hint="Filter by gender"
+                    class="select-sm sm:select-md"
                 >
                     <x-slot:prepend>
-                        <div class="flex items-center justify-center w-10 h-10">
-                            <x-icon name="o-user" class="w-5 h-5" />
+                        <div class="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10">
+                            <x-icon name="o-user" class="w-4 h-4 sm:w-5 sm:h-5" />
                         </div>
                     </x-slot:prepend>
                 </x-select>
@@ -910,50 +926,54 @@ new #[Title('Student Reports')] class extends Component {
                     option-value="value"
                     wire:model.live="ageGroup"
                     hint="Filter by age group"
+                    class="select-sm sm:select-md"
                 >
                     <x-slot:prepend>
-                        <div class="flex items-center justify-center w-10 h-10">
-                            <x-icon name="o-cake" class="w-5 h-5" />
+                        <div class="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10">
+                            <x-icon name="o-cake" class="w-4 h-4 sm:w-5 sm:h-5" />
                         </div>
                     </x-slot:prepend>
                 </x-select>
             </div>
         </div>
 
-        <div class="flex justify-end mt-4">
+        <div class="flex justify-center mt-3 sm:justify-end sm:mt-4">
             <x-button
                 label="Reset Filters"
                 icon="o-x-mark"
                 wire:click="resetFilters"
-                class="btn-ghost"
+                class="w-full btn-ghost btn-sm sm:btn-md sm:w-auto"
             />
         </div>
     </x-card>
 
     <!-- Key Metrics -->
-    <x-card title="Key Metrics" class="mb-6">
-        <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <div class="p-4 rounded-lg bg-base-200">
-                <div class="text-sm font-medium text-gray-500">Total Enrollments</div>
-                <div class="text-3xl font-bold">{{ number_format($metrics['total_enrollments'] ?? 0) }}</div>
+    <x-card title="Key Metrics" class="mb-4 sm:mb-6">
+        <div class="grid grid-cols-1 gap-3 sm:gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <div class="p-3 rounded-lg bg-base-200 sm:p-4">
+                <div class="text-xs font-medium text-gray-500 sm:text-sm">Total Enrollments</div>
+                <div class="text-xl font-bold sm:text-3xl">{{ number_format($metrics['total_enrollments'] ?? 0) }}</div>
+                <div class="mt-1 text-xs text-gray-400 sm:hidden">All student enrollments</div>
             </div>
 
-            <div class="p-4 rounded-lg bg-base-200">
-                <div class="text-sm font-medium text-gray-500">Active Enrollments</div>
-                <div class="text-3xl font-bold text-success">{{ number_format($metrics['active_enrollments'] ?? 0) }}</div>
+            <div class="p-3 rounded-lg bg-base-200 sm:p-4">
+                <div class="text-xs font-medium text-gray-500 sm:text-sm">Active Enrollments</div>
+                <div class="text-xl font-bold text-success sm:text-3xl">{{ number_format($metrics['active_enrollments'] ?? 0) }}</div>
+                <div class="mt-1 text-xs text-gray-400 sm:hidden">Currently active students</div>
             </div>
 
-            <div class="p-4 rounded-lg bg-base-200">
-                <div class="text-sm font-medium text-gray-500">Pending Enrollments</div>
-                <div class="text-3xl font-bold text-warning">{{ number_format($metrics['pending_enrollments'] ?? 0) }}</div>
+            <div class="p-3 rounded-lg bg-base-200 sm:p-4 sm:col-span-2 lg:col-span-1">
+                <div class="text-xs font-medium text-gray-500 sm:text-sm">Pending Enrollments</div>
+                <div class="text-xl font-bold text-warning sm:text-3xl">{{ number_format($metrics['pending_enrollments'] ?? 0) }}</div>
+                <div class="mt-1 text-xs text-gray-400 sm:hidden">Awaiting approval</div>
             </div>
         </div>
     </x-card>
 
     <!-- Charts Section -->
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    <div class="grid grid-cols-1 gap-4 lg:gap-6 lg:grid-cols-2">
         <!-- Chart 1 -->
-        <x-card title="Enrollment by Status">
+        <x-card title="Enrollment by Status" class="order-2 lg:order-1">
             <div>
                 <div x-data="{
                     chartData: {{ json_encode($chartData['status'] ?? []) }},
@@ -973,9 +993,17 @@ new #[Title('Student Reports')] class extends Component {
                             },
                             options: {
                                 responsive: true,
+                                maintainAspectRatio: false,
                                 plugins: {
                                     legend: {
-                                        position: 'bottom'
+                                        position: window.innerWidth < 640 ? 'bottom' : 'right',
+                                        labels: {
+                                            usePointStyle: true,
+                                            padding: window.innerWidth < 640 ? 10 : 20,
+                                            font: {
+                                                size: window.innerWidth < 640 ? 10 : 12
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -983,54 +1011,133 @@ new #[Title('Student Reports')] class extends Component {
                     }
                 ">
                     @if(!empty($chartData['status']))
-                        <div class="h-64">
+                        <div class="h-48 sm:h-64 lg:h-80">
                             <canvas id="chart1"></canvas>
                         </div>
                     @else
-                        <div class="flex flex-col items-center justify-center h-64 p-4">
-                            <x-icon name="o-chart-pie" class="w-16 h-16 text-gray-300" />
-                            <p class="mt-2 text-gray-500">No data available for the selected filters</p>
+                        <div class="flex flex-col items-center justify-center h-48 p-4 sm:h-64">
+                            <x-icon name="o-chart-pie" class="w-12 h-12 text-gray-300 sm:w-16 sm:h-16" />
+                            <p class="mt-2 text-sm text-center text-gray-500 sm:text-base">No data available for the selected filters</p>
                         </div>
                     @endif
                 </div>
             </div>
         </x-card>
 
-        <!-- Additional charts would go here -->
-        <x-card title="Data Table">
+        <!-- Data Table -->
+        <x-card title="Enrollment Data" class="order-1 lg:order-2">
             <div class="overflow-x-auto">
-                <table class="table w-full table-zebra">
-                    <thead>
-                        <tr>
-                            <th>Status</th>
-                            <th class="text-right">Count</th>
-                            <th class="text-right">Percentage</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @php
-                            $totalEnrollments = $metrics['total_enrollments'] ?? 0;
-                        @endphp
-                        @foreach($chartData['status'] ?? [] as $item)
+                @if(!empty($chartData['status']))
+                    <table class="table w-full text-sm table-zebra">
+                        <thead>
                             <tr>
-                                <td>{{ $item['name'] }}</td>
-                                <td class="text-right">{{ number_format($item['value']) }}</td>
-                                <td class="text-right">
-                                    {{ $totalEnrollments > 0 ? round(($item['value'] / $totalEnrollments) * 100, 1) : 0 }}%
-                                </td>
+                                <th class="text-xs text-left sm:text-sm">Status</th>
+                                <th class="text-xs text-right sm:text-sm">Count</th>
+                                <th class="hidden text-xs text-right sm:text-sm sm:table-cell">Percentage</th>
                             </tr>
-                        @endforeach
-                    </tbody>
-                    <tfoot>
-                        <tr>
-                            <th>Total</th>
-                            <th class="text-right">{{ number_format($totalEnrollments) }}</th>
-                            <th class="text-right">100%</th>
-                        </tr>
-                    </tfoot>
-                </table>
+                        </thead>
+                        <tbody>
+                            @php
+                                $totalEnrollments = $metrics['total_enrollments'] ?? 0;
+                            @endphp
+                            @foreach($chartData['status'] ?? [] as $item)
+                                <tr>
+                                    <td class="text-xs sm:text-sm">
+                                        <div class="flex items-center">
+                                            <div class="w-3 h-3 mr-2 rounded-full sm:w-4 sm:h-4"
+                                                 style="background-color: {{ ['#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF'][$loop->index % 7] }};"></div>
+                                            <span class="font-medium">{{ $item['name'] }}</span>
+                                        </div>
+                                        <div class="text-xs text-gray-500 sm:hidden">
+                                            {{ $totalEnrollments > 0 ? round(($item['value'] / $totalEnrollments) * 100, 1) : 0 }}%
+                                        </div>
+                                    </td>
+                                    <td class="text-xs font-medium text-right sm:text-sm">{{ number_format($item['value']) }}</td>
+                                    <td class="hidden text-xs text-right text-gray-600 sm:table-cell sm:text-sm">
+                                        {{ $totalEnrollments > 0 ? round(($item['value'] / $totalEnrollments) * 100, 1) : 0 }}%
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                        <tfoot>
+                            <tr class="font-semibold">
+                                <th class="text-xs text-left sm:text-sm">Total</th>
+                                <th class="text-xs text-right sm:text-sm">{{ number_format($totalEnrollments) }}</th>
+                                <th class="hidden text-xs text-right sm:table-cell sm:text-sm">100%</th>
+                            </tr>
+                        </tfoot>
+                    </table>
+                @else
+                    <div class="flex flex-col items-center justify-center h-32 p-4 text-center">
+                        <x-icon name="o-table-cells" class="w-8 h-8 text-gray-300 sm:w-12 sm:h-12" />
+                        <p class="mt-2 text-sm text-gray-500 sm:text-base">No enrollment data available</p>
+                        <p class="text-xs text-gray-400 sm:text-sm">Try adjusting your filters</p>
+                    </div>
+                @endif
             </div>
         </x-card>
+    </div>
+
+    <!-- Additional Metrics Cards (Mobile-Optimized) -->
+    <div class="grid grid-cols-2 gap-3 mt-4 sm:mt-6 sm:gap-4 lg:grid-cols-4">
+        <div class="p-3 border border-blue-100 rounded-lg bg-blue-50 sm:p-4">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <x-icon name="o-user-group" class="w-6 h-6 text-blue-600 sm:w-8 sm:h-8" />
+                </div>
+                <div class="ml-2 sm:ml-3">
+                    <p class="text-xs font-medium text-blue-900 sm:text-sm">Enrollment Rate</p>
+                    <p class="text-lg font-bold text-blue-700 sm:text-xl">
+                        @php
+                            $rate = $metrics['total_enrollments'] > 0 ? round(($metrics['active_enrollments'] / $metrics['total_enrollments']) * 100, 1) : 0;
+                        @endphp
+                        {{ $rate }}%
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-3 border border-green-100 rounded-lg bg-green-50 sm:p-4">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <x-icon name="o-check-circle" class="w-6 h-6 text-green-600 sm:w-8 sm:h-8" />
+                </div>
+                <div class="ml-2 sm:ml-3">
+                    <p class="text-xs font-medium text-green-900 sm:text-sm">Completion Rate</p>
+                    <p class="text-lg font-bold text-green-700 sm:text-xl">
+                        {{ $metrics['completion_rate'] ?? '0' }}%
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-3 border border-yellow-100 rounded-lg bg-yellow-50 sm:p-4">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <x-icon name="o-clock" class="w-6 h-6 text-yellow-600 sm:w-8 sm:h-8" />
+                </div>
+                <div class="ml-2 sm:ml-3">
+                    <p class="text-xs font-medium text-yellow-900 sm:text-sm">Avg Duration</p>
+                    <p class="text-lg font-bold text-yellow-700 sm:text-xl">
+                        {{ $metrics['avg_duration'] ?? '0' }} days
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-span-2 p-3 border border-purple-100 rounded-lg bg-purple-50 sm:p-4 lg:col-span-1">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <x-icon name="o-star" class="w-6 h-6 text-purple-600 sm:w-8 sm:h-8" />
+                </div>
+                <div class="ml-2 sm:ml-3">
+                    <p class="text-xs font-medium text-purple-900 sm:text-sm">Top Curriculum</p>
+                    <p class="text-sm font-bold text-purple-700 truncate sm:text-base">
+                        {{ $metrics['top_curriculum'] ?? 'N/A' }}
+                    </p>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
