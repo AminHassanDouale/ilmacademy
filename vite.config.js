@@ -9,7 +9,7 @@ export default defineConfig({
         }),
     ],
     build: {
-        outDir: 'dist', // Temporarily change to dist
+        // Remove outDir to use Laravel's default (public/build)
         emptyOutDir: true,
         rollupOptions: {
             output: {

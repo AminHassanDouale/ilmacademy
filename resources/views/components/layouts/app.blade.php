@@ -35,7 +35,14 @@
     <link href="https://cdn.jsdelivr.net/npm/photoswipe@5.4.3/dist/photoswipe.min.css" rel="stylesheet">
 
     {{-- Use only Vite directive for assets --}}
+ @if (file_exists(public_path('build/manifest.json')))
+    {{-- Production: Use Vite with manifest --}}
     @vite(['resources/css/app.css', 'resources/js/app.js'])
+@else
+    {{-- Development or fallback: Use hardcoded assets --}}
+    <link rel="stylesheet" href="{{ asset('build/assets/app-kGV4p3MF.css') }}">
+    <script src="{{ asset('build/assets/app-aqdrN_c0.js') }}" defer></script>
+@endif
 </head>
 <body class="min-h-screen font-sans antialiased bg-base-200/50 dark:bg-base-200">
 <x-nav sticky class="lg:hidden">

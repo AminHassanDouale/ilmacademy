@@ -1,1 +1,0 @@
-document.addEventListener("livewire:init",()=>{Livewire.hook("request",({fail:s})=>{s(({status:a,content:i,preventDefault:o})=>{try{i=JSON.parse(i),(a===419||i.status===419)&&(window.location.reload(),o()),i.redirectTo&&(window.location=i.redirectTo,o()),i.toast&&(toast({toast:i.toast}),o())}catch(r){console.log(r)}})})});
